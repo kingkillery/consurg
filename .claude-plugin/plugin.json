@@ -1,0 +1,5 @@
+{
+  "name": "context-surgeon",
+  "description": "Temporarily restrict AI coding agents to a declared subset of files",
+  "version": "0.1.0"
+}

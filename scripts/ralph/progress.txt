@@ -2,13 +2,49 @@
 Started: 2026-02-10
 
 ## Codebase Patterns
-- [Add patterns discovered during implementation]
+- CLI uses Typer with `CliRunner` for testing (no subprocess needed for CLI tests)
+- Hook enforce.py tested via subprocess since it reads stdin and uses sys.exit
+- All CLI commands read/write .consurg.yaml as raw dicts via PyYAML (not Scope dataclass) for flexibility
+- Scope dataclass used by enforce.py and resolve_tier for type safety
+- monkeypatch.chdir(tmp_path) is the standard pattern for CLI tests needing cwd isolation
+- fnmatch handles *.py and **/*.py globs natively
 
 ## Key Files
 - prd.md - Product requirements document
 - context-surgeon.md - Concept document
-- consurg/ - Python package (to be created)
-- hooks/enforce.py - Hook entry point (to be created)
-- .claude-plugin/plugin.json - Plugin manifest (to be created)
+- consurg/ - Python package
+- consurg/cli.py - Typer CLI with 9 commands
+- consurg/scope.py - Scope dataclass, load_scope(), ScopeError
+- consurg/enforce.py - resolve_tier() function
+- hooks/enforce.py - Hook entry point (stdin JSON -> exit code)
+- hooks/hooks.json - Claude Code hook config
+- .claude-plugin/plugin.json - Plugin manifest
+- commands/scope.md - /scope slash command
+- tests/ - 48 tests across 4 files
 
+---
+
+## [2026-02-10] - CS-001 through CS-012 (All Stories)
+- Implemented complete Context Surgeon MVP in one pass
+- Files created:
+  - pyproject.toml, consurg/__init__.py, consurg/__main__.py
+  - consurg/cli.py (init, add, remove, on, off, status, map, pin, unpin)
+  - consurg/scope.py (Scope dataclass, load_scope, ScopeError)
+  - consurg/enforce.py (resolve_tier with 5-tier fnmatch logic)
+  - hooks/enforce.py (stdin JSON hook, deny via stderr + exit 2)
+  - hooks/hooks.json (PreToolUse matcher config)
+  - .claude-plugin/plugin.json (plugin manifest)
+  - commands/scope.md (/scope slash command)
+  - tests/test_scope.py (4 tests)
+  - tests/test_enforce.py (6 tests)
+  - tests/test_cli.py (21 tests)
+  - tests/test_hook.py (8 tests)
+  - tests/test_integration.py (9 tests)
+- **48/48 tests passing**
+- **Learnings:**
+  - Typer CliRunner captures output but exit codes need explicit `raise typer.Exit(1)`
+  - Hook subprocess tests need full path to hook script via `Path(__file__).resolve()`
+  - sys.path.insert(0, ...) in hooks/enforce.py needed to import consurg package
+  - Rich Table/Tree/Panel all work in CliRunner output capture
+  - Drift detection integrated into `add` command checking metadata.original_count
 ---

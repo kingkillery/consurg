@@ -6,84 +6,84 @@
       "title": "Python package scaffolding",
       "description": "Create the consurg Python package structure: pyproject.toml with typer/rich/pyyaml deps, consurg/__init__.py, consurg/cli.py (Typer app skeleton with placeholder commands), consurg/scope.py (empty module), consurg/enforce.py (empty module). Verify with: python -m consurg --help prints usage.",
       "priority": 1,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CS-002",
       "title": "Scope YAML loading and validation",
       "description": "Implement consurg/scope.py: load_scope(path) reads .consurg.yaml via PyYAML, returns a Scope dataclass with fields: version, scope_name, active, reason, working_set (list[str]), reference (list[str]), signatures (list[str]), visible (list[str]), dynamic_deps (list[str]). Validate version==1, active is bool. Raise ScopeError on invalid. Write tests/test_scope.py with tests for valid load, missing file returns None, invalid version raises error.",
       "priority": 2,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CS-003",
       "title": "Tier resolution engine",
       "description": "Implement resolve_tier(file_path, scope) in consurg/enforce.py. Given a relative file path and a Scope object, return (tier_number, tier_label) by matching against scope fields using fnmatch: working_set->4/READ-WRITE, reference->3/READ-ONLY, signatures->2/SIGNATURE, visible->1/EXISTENCE, else->0/BLOCKED. Write tests/test_enforce.py covering: exact match, glob match (*.py), nested glob (**/*.py), priority ordering (file in both working_set and visible returns 4), unmatched file returns 0.",
       "priority": 3,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CS-004",
       "title": "CLI: consurg init and consurg add",
       "description": "Implement in consurg/cli.py: 'consurg init [name]' creates a .consurg.yaml in cwd with version:1, active:true, empty tier lists, scope name from arg or auto-generated from cwd dirname. 'consurg add <files...>' appends files to working_set. 'consurg add --read <files...>' appends to reference. 'consurg add --sig <files...>' appends to signatures. All commands read/write .consurg.yaml. Write tests verifying init creates valid YAML and add modifies correct tier lists.",
       "priority": 4,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CS-005",
       "title": "CLI: consurg on, off, status",
       "description": "Implement in consurg/cli.py: 'consurg on' sets active:true in .consurg.yaml. 'consurg off' sets active:false. 'consurg status' prints scope name, active state, and file counts per tier using Rich formatting. Handle missing .consurg.yaml gracefully (print 'No scope defined. Run consurg init'). Write tests.",
       "priority": 5,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CS-006",
       "title": "CLI: consurg remove",
       "description": "Implement 'consurg remove <files...>' in consurg/cli.py: removes specified file patterns from all tier lists (working_set, reference, signatures, visible). If a pattern is not found in any list, print a warning. Write tests verifying removal from correct tier and warning on missing pattern.",
       "priority": 6,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CS-007",
       "title": "CLI: consurg map visualization",
       "description": "Implement 'consurg map' in consurg/cli.py using Rich: scan the project directory tree, resolve each file's tier via resolve_tier(), display a tree with tier labels and visual bars. Format: [RW] with green blocks for Tier 4, [RO] with yellow blocks for Tier 3, [SIG] with blue blocks for Tier 2, [--] with gray dashes for Tier 0-1. Use Rich Tree and Text for formatting. Write a basic test that map runs without error on a scope with at least 2 tiers.",
       "priority": 7,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CS-008",
       "title": "Hook enforcement script",
       "description": "Create hooks/enforce.py at project root (separate from the consurg package, this is the hook entry point). It reads stdin JSON (tool_name, tool_input, cwd), loads .consurg.yaml from cwd, resolves tier, and: exit 0 for allowed ops, prints JSON with permissionDecision:deny to stderr + exit 2 for blocked ops. Tier 0-1 blocks all. Tier 2-3 blocks Edit/Write but allows Read. Tier 4 allows all. Handles missing scope (exit 0). Write tests/test_hook.py that simulates stdin JSON and checks exit codes and stderr output.",
       "priority": 8,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CS-009",
       "title": "Claude Code plugin scaffolding",
       "description": "Create the Claude Code plugin structure: .claude-plugin/plugin.json with name 'context-surgeon', hooks/hooks.json with PreToolUse matcher for Read|Edit|Write|Grep|Glob pointing to hooks/enforce.py, commands/scope.md slash command that generates a Layer 1 prompt block from the active .consurg.yaml (listing files by tier and including any extracted_signatures from the YAML). Verify plugin.json is valid JSON and hooks.json references the correct script path via ${CLAUDE_PLUGIN_ROOT}.",
       "priority": 9,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CS-010",
       "title": "Scope drift detection",
       "description": "Add drift tracking to consurg/scope.py: store original_file_count when scope is first activated (persist in .consurg.yaml under metadata.original_count). In consurg/cli.py, after any 'consurg add' command, check if current total file count exceeds 2x original_count. If so, print a Rich warning panel showing original vs current counts and expansion ratio. Write tests verifying drift warning triggers at 2x and does not trigger below.",
       "priority": 10,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CS-011",
       "title": "CLI: consurg pin and unpin",
       "description": "Implement 'consurg pin' in consurg/cli.py: if scope is currently in-memory/temp state, write it to .consurg.yaml in project root. 'consurg unpin' deletes .consurg.yaml from project root. Pin should refuse if .consurg.yaml already exists (suggest 'consurg off' first or overwrite flag). Write tests.",
       "priority": 11,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CS-012",
       "title": "End-to-end integration test",
       "description": "Create tests/test_integration.py: (1) consurg init creates valid scope, (2) consurg add populates working_set, (3) consurg add --read populates reference, (4) resolve_tier returns correct tiers, (5) hook enforce.py blocks Read on Tier 0 file (simulate stdin, check exit 2), (6) hook allows Read on Tier 3 file (check exit 0), (7) hook blocks Write on Tier 3 file (check exit 2), (8) consurg status runs without error, (9) consurg map runs without error. All tests use a temp directory with a sample .consurg.yaml.",
       "priority": 12,
-      "passes": false
+      "passes": true
     }
   ]
 }

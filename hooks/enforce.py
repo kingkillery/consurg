@@ -5,7 +5,9 @@ Reads stdin JSON from Claude Code, resolves file tier, and signals
 allow (exit 0) or deny (exit 2 with stderr JSON).
 """
 import json
+import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Allow importing from the consurg package
@@ -21,6 +23,19 @@ PATH_FIELDS = {
     "Grep": "path",
     "Glob": "path",
 }
+
+READ_TOOLS = {"Read", "Grep", "Glob"}
+WRITE_TOOLS = {"Edit", "Write"}
+
+
+def log_violation(cwd: str, tool_name: str, target: str, label: str, scope_name: str):
+    if not os.environ.get("CONSURG_LOG"):
+        return
+    log_path = Path(cwd) / ".consurg-violations.log"
+    timestamp = datetime.now(timezone.utc).isoformat()
+    line = f"[{timestamp}] DENIED tool={tool_name} file={target} tier={label} scope={scope_name}\n"
+    with open(log_path, "a") as f:
+        f.write(line)
 
 
 def deny(message: str):
@@ -59,7 +74,12 @@ def main():
 
     tier, label = resolve_tier(target, scope)
 
+    # Explorer mode: allow read tools on all files, still block writes outside working_set
+    if scope.explorer and tool_name in READ_TOOLS:
+        sys.exit(0)
+
     if tier <= 1:
+        log_violation(cwd, tool_name, target, label, scope.scope_name)
         deny(
             f"[CONTEXT SURGEON: ACCESS DENIED]\n"
             f"File: {target}\n"
@@ -69,7 +89,8 @@ def main():
             f"Action: State which file you need and why. User will decide."
         )
 
-    if tier <= 3 and tool_name in ("Edit", "Write"):
+    if tier <= 3 and tool_name in WRITE_TOOLS:
+        log_violation(cwd, tool_name, target, label, scope.scope_name)
         deny(
             f"[CONTEXT SURGEON: WRITE BLOCKED]\n"
             f"File: {target}\n"

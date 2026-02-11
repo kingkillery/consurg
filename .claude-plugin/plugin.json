@@ -1,5 +1,32 @@
 {
   "name": "context-surgeon",
-  "description": "Temporarily restrict AI coding agents to a declared subset of files",
-  "version": "0.1.0"
+  "description": "Temporarily restrict AI coding agents to a declared subset of files using a 5-tier permission model",
+  "version": "0.1.0",
+  "commands": [
+    {
+      "name": "scope",
+      "description": "Show the active Context Surgeon scope with files organized by tier",
+      "file": "commands/scope.md"
+    },
+    {
+      "name": "scope-status",
+      "description": "Show the current scope status with tier counts and drift info",
+      "file": "commands/scope-status.md"
+    },
+    {
+      "name": "scope-map",
+      "description": "Visualize the project file tree with tier annotations",
+      "file": "commands/scope-map.md"
+    }
+  ],
+  "skills": [
+    {
+      "name": "context-surgeon",
+      "description": "Temporarily restrict AI coding agents to a declared subset of files using a 5-tier permission model",
+      "file": "skills/context-surgeon/SKILL.md"
+    }
+  ],
+  "hooks": {
+    "file": "hooks/hooks.json"
+  }
 }

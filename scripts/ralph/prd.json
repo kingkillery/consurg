@@ -84,6 +84,69 @@
       "description": "Create tests/test_integration.py: (1) consurg init creates valid scope, (2) consurg add populates working_set, (3) consurg add --read populates reference, (4) resolve_tier returns correct tiers, (5) hook enforce.py blocks Read on Tier 0 file (simulate stdin, check exit 2), (6) hook allows Read on Tier 3 file (check exit 0), (7) hook blocks Write on Tier 3 file (check exit 2), (8) consurg status runs without error, (9) consurg map runs without error. All tests use a temp directory with a sample .consurg.yaml.",
       "priority": 12,
       "passes": true
+    },
+    {
+      "id": "CS-013",
+      "title": "Trace engine: dependency graph and Python resolver",
+      "description": "Implement consurg/trace/ package: graph.py with DependencyGraph class (add_edge, get_dependencies, get_dependents, classify_tiers), DependencyKind enum (IMPORT, RE_EXPORT, TYPE_ONLY). python_resolver.py using ast module to parse Python imports (absolute, relative, package). classify_tiers returns tier assignments: entry=4, direct deps=3, transitive=2, unreachable=1. Write tests/test_trace.py covering graph construction, tier classification, Python import resolution.",
+      "priority": 13,
+      "passes": true
+    },
+    {
+      "id": "CS-014",
+      "title": "Trace engine: TypeScript/JS resolver and signature extraction",
+      "description": "Implement consurg/trace/ts_resolver.py: regex-based parser for import from, require(), dynamic import(), export * from, re-exports. Handle extension probing (.ts/.tsx/.js/.jsx), directory index resolution, tsconfig.json paths/baseUrl. Implement consurg/trace/signatures.py: extract function/class/interface/type signatures via regex for Python and TS/JS. Write tests for TS import resolution and signature extraction.",
+      "priority": 14,
+      "passes": true
+    },
+    {
+      "id": "CS-015",
+      "title": "CLI: consurg trace command",
+      "description": "Implement 'consurg trace <entry_files...>' in consurg/cli.py: detect language by extension, use appropriate resolver to build DependencyGraph via BFS, call classify_tiers(), display Rich table with tier classification. Flags: --apply writes scope to .consurg.yaml, --depth N limits trace depth (default 3). Handle missing entry files gracefully. Write tests covering trace with imports, --apply, --depth limit, missing files, multiple entries.",
+      "priority": 15,
+      "passes": true
+    },
+    {
+      "id": "CS-016",
+      "title": "CLI: consurg git-diff command",
+      "description": "Implement 'consurg git-diff [base_branch]' in consurg/cli.py: auto-detect main/master branch, run git diff --name-only to get changed files, build dependency graph from changed files, generate scope (changed files=working_set, deps=reference). Flags: --apply writes to .consurg.yaml. Handle non-git dirs gracefully. Write tests with temp git repo.",
+      "priority": 16,
+      "passes": true
+    },
+    {
+      "id": "CS-017",
+      "title": "Tool adapters (Claude, Cursor, Aider, Generic)",
+      "description": "Implement consurg/adapters/ package: claude.py generates CLAUDE.md scope block, cursor.py generates .cursorrules format, aider.py generates --file/--read flags, generic.py generates generic LLM prompt. Add 'consurg export --format claude|cursor|aider|generic' CLI command. Write tests for each adapter output format and the export command.",
+      "priority": 17,
+      "passes": true
+    },
+    {
+      "id": "CS-018",
+      "title": "Scope inheritance and write conflict detection",
+      "description": "Implement narrow_scope(parent, child_files) in consurg/scope.py: creates child scope where files can only come from parent tiers, child cannot exceed parent permissions (monotonic narrowing). Implement detect_write_conflicts(scopes) that returns file patterns in multiple scopes' working_sets. Write tests for narrowing, rejection of out-of-scope files, and conflict detection.",
+      "priority": 18,
+      "passes": true
+    },
+    {
+      "id": "CS-019",
+      "title": "Explorer mode and violation logging",
+      "description": "Add explorer: bool field to Scope dataclass. Update hooks/enforce.py: when explorer=True, allow Read/Grep/Glob on all files but block Write/Edit outside working_set. Add violation logging: when CONSURG_LOG=1 env var set, append denied ops to .consurg-violations.log. Write tests for explorer mode (subprocess hook validation) and violation logging.",
+      "priority": 19,
+      "passes": true
+    },
+    {
+      "id": "CS-020",
+      "title": "Plugin scaffolding: slash commands and skill documentation",
+      "description": "Create commands/scope-status.md and commands/scope-map.md slash commands. Create skills/context-surgeon/SKILL.md with comprehensive documentation (5-tier model, workflows, CLI reference, scope file format, hook integration). Update .claude-plugin/plugin.json to reference all commands and skills. Verify plugin.json is valid JSON.",
+      "priority": 20,
+      "passes": true
+    },
+    {
+      "id": "CS-021",
+      "title": "Phase 3-4 integration verification",
+      "description": "Verify all Phase 3-4 features work together: (1) consurg trace builds correct scope from Python imports, (2) consurg export generates valid output for all 4 formats, (3) explorer mode allows reads but blocks writes via hook, (4) narrow_scope enforces monotonic narrowing, (5) violation logging records denials, (6) all 121+ tests pass, (7) consurg --help shows all 12 commands, (8) plugin.json is valid.",
+      "priority": 21,
+      "passes": true
     }
   ]
 }

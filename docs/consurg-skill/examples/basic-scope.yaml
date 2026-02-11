@@ -1,0 +1,37 @@
+# Minimal Context Surgeon scope file
+# Copy to project root as .consurg.yaml and customize
+
+version: 1
+scope: my-feature
+active: true
+reason: "Restricting agent to feature module"
+
+# Tier 4: Files the agent can read AND write
+working_set:
+  - src/feature/*.py
+  - tests/test_feature.py
+
+# Tier 3: Files the agent can read but NOT write
+reference:
+  - src/core/config.py
+  - src/core/database.py
+  - docs/feature.md
+
+# Tier 2: Only function/class signatures visible
+signatures:
+  - types/*.pyi
+
+# Tier 1: Agent knows these exist but cannot read content
+visible:
+  - pyproject.toml
+  - .env.example
+
+# Everything not listed above is Tier 0 (BLOCKED)
+# The agent cannot see, read, or write blocked files.
+
+# Optional: allow all reads (writes still restricted)
+# explorer: true
+
+# Reserved for computed dependencies
+dynamic_deps: []
+explorer: false

@@ -1,4 +1,6 @@
+import os
 import subprocess
+import sys
 from collections import deque
 from pathlib import Path
 from typing import Annotated
@@ -454,6 +456,153 @@ def _detect_base_branch() -> str | None:
         except FileNotFoundError:
             return None
     return None
+
+
+# ---------------------------------------------------------------------------
+# guard command
+# ---------------------------------------------------------------------------
+
+@app.command()
+def guard(
+    interactive: bool = typer.Option(True, "-i/--no-i", help="Enable interactive TUI mode"),
+    port: int = typer.Option(9876, "--port", help="HTTP server port"),
+    no_tui: bool = typer.Option(False, "--no-tui", help="Run headless (no TUI)"),
+):
+    """Start the interactive scope firewall guard."""
+    from consurg.guard.lockfile import GuardLockfile
+    from consurg.guard.server import GuardServer
+    from consurg.guard.state import GuardState
+
+    scope = load_scope(_scope_path())
+    if scope is None:
+        console.print("[red]No scope defined. Run consurg init[/red]")
+        raise typer.Exit(1)
+
+    if not scope.active:
+        console.print("[yellow]Scope is inactive. Activating for guard session.[/yellow]")
+        scope.active = True
+
+    state = GuardState(scope=scope, interactive=interactive and not no_tui, port=port)
+
+    # Write lockfile for hook discovery
+    lockfile = GuardLockfile()
+    lockfile.write(port=port, scope_name=scope.scope_name)
+
+    # Start HTTP server
+    server = GuardServer(state)
+    try:
+        server.start()
+        console.print(f"[green]Guard started on port {port}[/green]")
+
+        if no_tui:
+            # Headless mode — just wait
+            console.print("[dim]Running headless. Press Ctrl+C to stop.[/dim]")
+            import time
+            while state.running:
+                time.sleep(0.5)
+        else:
+            # Interactive TUI mode
+            from consurg.guard.tui import run_tui
+            run_tui(state)
+    except KeyboardInterrupt:
+        state.running = False
+    finally:
+        server.stop()
+        lockfile.remove()
+        console.print("[yellow]Guard stopped.[/yellow]")
+
+
+# ---------------------------------------------------------------------------
+# wire command
+# ---------------------------------------------------------------------------
+
+WIRE_TOOLS = ["claude", "pk-agent", "droid", "gemini", "codex"]
+
+
+@app.command()
+def wire(
+    tool: str = typer.Argument(..., help=f"Tool to wire: {', '.join(WIRE_TOOLS)}"),
+    unwire_flag: bool = typer.Option(False, "--unwire", help="Remove hooks instead of installing"),
+):
+    """Auto-configure hooks for a supported AI tool."""
+    from consurg.wire import WIRERS
+
+    if tool not in WIRERS:
+        console.print(f"[red]Unknown tool '{tool}'. Supported: {', '.join(WIRERS.keys())}[/red]")
+        raise typer.Exit(1)
+
+    wirer = WIRERS[tool]()
+
+    if unwire_flag:
+        result = wirer.unwire()
+    else:
+        result = wirer.wire()
+
+    if result.success:
+        console.print(f"[green]{result.message}[/green]")
+        if result.config_path:
+            console.print(f"[dim]Config: {result.config_path}[/dim]")
+    else:
+        console.print(f"[red]{result.message}[/red]")
+        raise typer.Exit(1)
+
+    # Show current status
+    current = wirer.status()
+    console.print(f"[dim]Status: {current}[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# wrap command
+# ---------------------------------------------------------------------------
+
+@app.command(
+    context_settings={"allow_extra_args": True, "allow_interspersed_args": False},
+)
+def wrap(ctx: typer.Context):
+    """Wrap a command with scope enforcement (embedded headless guard).
+
+    Usage: consurg wrap -- <command> [args...]
+    """
+    if not ctx.args:
+        console.print("[red]No command provided. Usage: consurg wrap -- <command>[/red]")
+        raise typer.Exit(1)
+
+    from consurg.guard.lockfile import GuardLockfile
+    from consurg.guard.server import GuardServer
+    from consurg.guard.state import GuardState
+
+    scope = load_scope(_scope_path())
+    if scope is None:
+        console.print("[red]No scope defined. Run consurg init[/red]")
+        raise typer.Exit(1)
+
+    # Find a free port
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+
+    state = GuardState(scope=scope, interactive=False, port=port)
+    lockfile = GuardLockfile()
+    lockfile.write(port=port, scope_name=scope.scope_name)
+
+    server = GuardServer(state)
+    server.start()
+
+    # Set env vars for child process
+    env = os.environ.copy()
+    env["CONSURG_GUARD_PORT"] = str(port)
+    env["CONSURG_ACTIVE"] = "1"
+
+    try:
+        result = subprocess.run(ctx.args, env=env)
+        raise typer.Exit(result.returncode)
+    except FileNotFoundError:
+        console.print(f"[red]Command not found: {ctx.args[0]}[/red]")
+        raise typer.Exit(1)
+    finally:
+        server.stop()
+        lockfile.remove()
 
 
 if __name__ == "__main__":

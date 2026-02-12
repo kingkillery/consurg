@@ -72,6 +72,13 @@ def test_add_no_duplicates(in_tmp):
     assert data["working_set"] == ["src/*.py"]
 
 
+def test_add_normalizes_backslashes(in_tmp):
+    runner.invoke(app, ["init"])
+    runner.invoke(app, ["add", "src\\main.py"])
+    data = _read_scope(in_tmp)
+    assert data["working_set"] == ["src/main.py"]
+
+
 def test_add_without_init(in_tmp):
     result = runner.invoke(app, ["add", "file.py"])
     assert result.exit_code == 1
@@ -102,6 +109,19 @@ def test_status_shows_info(in_tmp):
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
     assert "test-scope" in result.output
+
+
+def test_status_displays_forward_slashes(in_tmp):
+    runner.invoke(app, ["init"])
+    data = _read_scope(in_tmp)
+    data["working_set"] = ["src\\main.py"]
+    with open(in_tmp / ".consurg.yaml", "w") as f:
+        yaml.dump(data, f)
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert "src/main.py" in result.output
+    assert "src\\main.py" not in result.output
 
 
 def test_status_no_scope(in_tmp):
@@ -140,9 +160,31 @@ def test_audit_status_with_env_and_runs(in_tmp):
     assert "1" in result.output
 
 
+def test_off_shows_hint(in_tmp):
+    runner.invoke(app, ["init"])
+    result = runner.invoke(app, ["off"])
+    assert "Hint: Run consurg clean" in result.output
+
+
 def test_on_no_scope(in_tmp):
     result = runner.invoke(app, ["on"])
     assert result.exit_code == 1
+
+
+# CS-011: clean
+
+def test_clean_removes_scope_file(in_tmp):
+    runner.invoke(app, ["init"])
+    result = runner.invoke(app, ["clean"])
+    assert result.exit_code == 0
+    assert not (in_tmp / ".consurg.yaml").exists()
+
+
+def test_clean_keep_scope(in_tmp):
+    runner.invoke(app, ["init"])
+    result = runner.invoke(app, ["clean", "--keep-scope"])
+    assert result.exit_code == 0
+    assert (in_tmp / ".consurg.yaml").exists()
 
 
 # CS-006: remove
@@ -178,6 +220,34 @@ def test_map_runs(in_tmp):
 def test_map_no_scope(in_tmp):
     result = runner.invoke(app, ["map"])
     assert "No scope defined" in result.output
+
+
+def test_map_scoped_only(in_tmp):
+    runner.invoke(app, ["init", "scoped-test"])
+    runner.invoke(app, ["add", "a.py"])
+    (in_tmp / "a.py").write_text("")
+    (in_tmp / "b.py").write_text("")
+
+    result_all = runner.invoke(app, ["map"])
+    assert "a.py" in result_all.output
+
+    result_scoped = runner.invoke(app, ["map", "--scoped-only"])
+    assert "a.py" in result_scoped.output
+    # b.py is T0 blocked so should be hidden
+    assert "b.py" not in result_scoped.output
+
+
+def test_map_depth_limit(in_tmp):
+    runner.invoke(app, ["init", "depth-test"])
+    runner.invoke(app, ["add", "*.py"])
+    (in_tmp / "top.py").write_text("")
+    sub = in_tmp / "sub"
+    sub.mkdir()
+    (sub / "deep.py").write_text("")
+
+    result = runner.invoke(app, ["map", "--depth", "1"])
+    assert "top.py" in result.output
+    assert "deep.py" not in result.output
 
 
 # CS-010: drift detection

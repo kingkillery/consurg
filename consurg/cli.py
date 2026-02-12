@@ -88,8 +88,9 @@ def add(
 
     existing = data.get(key, [])
     for f in files:
-        if f not in existing:
-            existing.append(f)
+        pattern = f.replace("\\", "/")
+        if pattern not in existing:
+            existing.append(pattern)
     data[key] = existing
 
     # Drift detection
@@ -157,6 +158,49 @@ def off():
     data["active"] = False
     _write_yaml(data)
     console.print("[yellow]Scope deactivated[/yellow]")
+    console.print("[dim]Hint: Run consurg clean to also unwire tools and remove .consurg.yaml[/dim]")
+
+
+@app.command()
+def clean(
+    keep_scope: bool = typer.Option(False, "--keep-scope", help="Skip removing .consurg.yaml"),
+):
+    """Deactivate scope, unwire all tools, and optionally remove .consurg.yaml."""
+    from consurg.wire import WIRERS
+
+    actions = []
+
+    # 1. Off
+    data = _read_yaml()
+    if data:
+        if data.get("active"):
+            data["active"] = False
+            _write_yaml(data)
+            actions.append("Scope deactivated")
+
+    # 2. Unwire all
+    for tool_id, wirer_cls in WIRERS.items():
+        wirer = wirer_cls()
+        if wirer.status() != "not wired":
+            result = wirer.unwire()
+            if result.success:
+                actions.append(f"Unwired {wirer.name}")
+            else:
+                actions.append(f"[red]Failed to unwire {wirer.name}: {result.message}[/red]")
+
+    # 3. Unpin
+    if not keep_scope:
+        p = _scope_path()
+        if p.exists():
+            p.unlink()
+            actions.append("Scope file (.consurg.yaml) removed")
+
+    if actions:
+        console.print("[green]Clean complete:[/green]")
+        for action in actions:
+            console.print(f" - {action}")
+    else:
+        console.print("[yellow]Nothing to clean.[/yellow]")
 
 
 @app.command()
@@ -184,13 +228,17 @@ def status():
     ]
     for label, key in tiers:
         patterns = data.get(key, [])
-        table.add_row(label, str(len(patterns)), ", ".join(patterns) if patterns else "-")
+        patterns_display = [p.replace("\\", "/") for p in patterns]
+        table.add_row(label, str(len(patterns)), ", ".join(patterns_display) if patterns_display else "-")
 
     console.print(table)
 
 
 @app.command(name="map")
-def map_cmd():
+def map_cmd(
+    depth: Annotated[int | None, typer.Option("--depth", "-d", help="Maximum directory depth to traverse.")] = None,
+    scoped_only: Annotated[bool, typer.Option("--scoped-only", help="Only show files with tier >= 1.")] = False,
+):
     """Visualize file tiers as a tree."""
     from rich.text import Text
     from rich.tree import Tree
@@ -213,18 +261,46 @@ def map_cmd():
         0: ("[--]", "dim", "dash"),
     }
 
-    files = sorted(p.relative_to(cwd) for p in cwd.rglob("*") if p.is_file()
-                   and ".git" not in p.parts and "__pycache__" not in p.parts
-                   and ".pytest_cache" not in p.parts)
+    # Use git ls-files for .gitignore-aware file discovery; fallback to rglob
+    try:
+        result = subprocess.run(
+            ["git", "ls-files"],
+            capture_output=True, text=True, cwd=str(cwd),
+        )
+        if result.returncode == 0:
+            files = sorted(
+                Path(f) for f in result.stdout.strip().splitlines() if f.strip()
+            )
+        else:
+            raise FileNotFoundError
+    except FileNotFoundError:
+        files = sorted(
+            p.relative_to(cwd) for p in cwd.rglob("*") if p.is_file()
+            and ".git" not in p.parts and "__pycache__" not in p.parts
+            and ".pytest_cache" not in p.parts and "node_modules" not in p.parts
+            and ".next" not in p.parts and "dist" not in p.parts
+            and "venv" not in p.parts and ".venv" not in p.parts
+        )
+
+    # Filter by depth if specified
+    if depth is not None:
+        files = [f for f in files if len(f.parts) <= depth]
+
+    # Warn on large file counts
+    if len(files) > 5000:
+        console.print(f"[yellow]Warning: {len(files)} files found. Consider using --scoped-only to limit output.[/yellow]")
 
     for fp in files:
-        tier_num, _ = resolve_tier(str(fp), scope)
+        fp_str = str(fp).replace("\\", "/")
+        tier_num, _ = resolve_tier(fp_str, scope)
+        if scoped_only and tier_num == 0:
+            continue
         label, style, block_type = tier_styles.get(tier_num, ("[--]", "dim", "dash"))
         bar = "\u2588" * min(tier_num, 4) if block_type == "block" else "-" * 2
         text = Text()
         text.append(f"{label} ", style=style)
         text.append(bar + " ", style=style)
-        text.append(str(fp))
+        text.append(fp_str)
         tree.add(text)
 
     console.print(tree)

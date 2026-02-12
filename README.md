@@ -129,7 +129,8 @@ explorer: false
 | `consurg on` / `off` | Activate or deactivate scope |
 | `consurg status` | Show tier counts and patterns |
 | `consurg audit-status` | Show effective audit config and local audit storage usage |
-| `consurg map` | Visualize files as a tree with tier badges |
+| `consurg clean [--keep-scope]` | Deactivate scope, unwire all tools, and remove scope file |
+| `consurg map [--scoped-only] [--depth N]` | Visualize files as a tree with tier badges |
 | `consurg trace ENTRIES [--depth N] [--apply]` | Build scope from dependency graph |
 | `consurg git-diff [BASE] [--apply]` | Build scope from branch diff |
 | `consurg export --format FMT` | Export as claude, cursor, aider, or generic |

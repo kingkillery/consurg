@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 from collections import deque
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Annotated
 
@@ -43,6 +44,25 @@ def _write_yaml(data: dict):
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
+def _list_all_files(cwd: Path) -> list[str]:
+    """Return all files in the repository, relative to cwd, respecting basic ignores."""
+    files = []
+    ignored = {".git", "__pycache__", ".pytest_cache", "node_modules", ".venv", "env", "venv", "dist", "build"}
+
+    for root, dirs, filenames in os.walk(cwd):
+        # Prune ignored directories
+        dirs[:] = [d for d in dirs if d not in ignored]
+
+        for name in filenames:
+            path = Path(root) / name
+            try:
+                rel = path.relative_to(cwd)
+                files.append(str(rel).replace("\\", "/"))
+            except ValueError:
+                continue
+    return files
+
+
 @app.command()
 def init(name: str = typer.Argument(None, help="Scope name (defaults to directory name)")):
     """Initialize a new .consurg.yaml scope file."""
@@ -82,7 +102,32 @@ def add(
         key = "working_set"
 
     existing = data.get(key, [])
+
+    # Validation
+    all_files = None  # Lazy load
+
     for f in files:
+        # Check if pattern is a wildcard
+        is_wildcard = any(c in f for c in "*?[]")
+
+        if is_wildcard:
+            if all_files is None:
+                all_files = _list_all_files(Path.cwd())
+
+            # Check if any file matches the pattern
+            # f is expected to use forward slashes as per convention
+            normalized_pattern = f.replace("\\", "/")
+            if not any(fnmatch(path, normalized_pattern) for path in all_files):
+                console.print(f"[yellow]Warning: Pattern '{f}' matches no files[/yellow]")
+
+        else:
+            # Literal path check
+            p = Path(f)
+            if not p.exists():
+                console.print(f"[yellow]Warning: File or directory '{f}' not found[/yellow]")
+            elif p.is_dir():
+                console.print(f"[yellow]Warning: Directory added. This pattern won't match files inside. Did you mean '{f}/*'? [/yellow]")
+
         if f not in existing:
             existing.append(f)
     data[key] = existing

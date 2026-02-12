@@ -135,6 +135,8 @@ explorer: false
 | `consurg guard [-i] [--port N] [--no-tui]` | Start interactive scope firewall |
 | `consurg wire TOOL [--unwire]` | Auto-configure hooks for a tool |
 | `consurg wrap -- CMD [ARGS]` | Run command with embedded scope enforcement |
+| `consurg scaffold-pk-agents [--force]` | Create pk-agent scope selector + excluded-context summarizer |
+| `consurg apply-proposal [--proposal-file PATH] [--apply]` | Map scope-proposal output into `.consurg.yaml` |
 | `consurg pin` / `unpin` | Save or remove scope file |
 
 ## Supported Tools
@@ -148,6 +150,31 @@ explorer: false
 | **Codex CLI** | MCP server wrapper in `~/.codex/mcp.json` | `consurg wire codex` |
 
 Unwire with `consurg wire <tool> --unwire`.
+
+## pk-agent Scope Automation
+
+Create the two-agent system for scope planning and excluded-context review:
+
+```bash
+consurg scaffold-pk-agents
+```
+
+This generates:
+- `.agents/pk-agents/consurg-scope-selector.pk-agent`
+- `.agents/pk-agents/consurg-excluded-summarizer.pk-agent`
+- `.agents/pk-agents/README.md` (runbook)
+
+Apply proposal output into Consurg tiers:
+
+```bash
+consurg apply-proposal --apply
+```
+
+Install dependency if needed:
+
+```bash
+npm i -g pk-agent
+```
 
 ## Documentation
 

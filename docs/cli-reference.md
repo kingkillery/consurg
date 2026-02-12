@@ -204,6 +204,45 @@ consurg wrap -- python my_script.py
 
 The wrapped command's exit code is propagated. The guard starts on a random port and cleans up automatically.
 
+## pk-agent Scope Workflow
+
+### `consurg scaffold-pk-agents [OPTIONS]`
+
+Scaffold two `pk-agent` agents for scope planning:
+- `consurg-scope-selector.pk-agent`
+- `consurg-excluded-summarizer.pk-agent`
+
+Also creates `.agents/pk-agents/README.md` with a runbook.
+
+| Option | Description |
+|--------|-------------|
+| `--force` | Overwrite existing scaffold files |
+
+```bash
+consurg scaffold-pk-agents
+consurg scaffold-pk-agents --force
+```
+
+### `consurg apply-proposal [OPTIONS]`
+
+Map a scope proposal into `.consurg.yaml`.
+
+Expected proposal keys:
+- `include_context` -> mapped to `working_set` (T4)
+- `read_only` -> mapped to `reference` (T3)
+- `exclude` -> remains implicit T0 blocked (not written as a tier list)
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--proposal-file PATH` | `.consurg/recommendations/scope-proposal.yaml` | Path to proposal YAML |
+| `--apply` | false | Write mapped values to `.consurg.yaml` (without this, preview only) |
+
+```bash
+consurg apply-proposal
+consurg apply-proposal --apply
+consurg apply-proposal --proposal-file alt/scope-proposal.yaml --apply
+```
+
 ## Exit Codes
 
 | Code | Meaning |

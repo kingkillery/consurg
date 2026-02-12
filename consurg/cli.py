@@ -17,6 +17,7 @@ from consurg.adapters import (
     generate_cursor_rules,
     generate_generic_prompt,
 )
+from consurg.pk_agents import scaffold_pk_agents
 from consurg.scope import Scope, load_scope
 from consurg.trace import DependencyGraph, resolve_python_imports, resolve_ts_imports
 
@@ -276,6 +277,67 @@ def export(
         console.print(" ".join(result))
     else:
         console.print(result, highlight=False)
+
+
+@app.command(name="apply-proposal")
+def apply_proposal(
+    proposal_file: str = typer.Option(
+        ".consurg/recommendations/scope-proposal.yaml",
+        "--proposal-file",
+        help="Path to scope proposal YAML file",
+    ),
+    apply: bool = typer.Option(False, "--apply", help="Write mapped values to .consurg.yaml"),
+):
+    """Map scope proposal output into Consurg scope tiers."""
+    proposal_path = Path(proposal_file)
+    if not proposal_path.exists():
+        console.print(f"[red]Proposal file not found: {proposal_path}[/red]")
+        raise typer.Exit(1)
+
+    with open(proposal_path, encoding="utf-8") as f:
+        proposal = yaml.safe_load(f) or {}
+
+    required_keys = ("include_context", "read_only", "exclude")
+    missing = [k for k in required_keys if k not in proposal]
+    if missing:
+        console.print(f"[red]Invalid proposal: missing keys: {', '.join(missing)}[/red]")
+        raise typer.Exit(1)
+
+    for key in required_keys:
+        if not isinstance(proposal.get(key), list) or not all(isinstance(x, str) for x in proposal[key]):
+            console.print(f"[red]Invalid proposal: '{key}' must be a list of strings[/red]")
+            raise typer.Exit(1)
+
+    include_context = proposal.get("include_context", [])
+    read_only = proposal.get("read_only", [])
+    exclude = proposal.get("exclude", [])
+
+    table = Table(title="Scope Proposal Mapping")
+    table.add_column("Proposal Key", style="bold")
+    table.add_column("Consurg Tier")
+    table.add_column("Count", justify="right")
+    table.add_row("include_context", "working_set (T4)", str(len(include_context)))
+    table.add_row("read_only", "reference (T3)", str(len(read_only)))
+    table.add_row("exclude", "implicit blocked (T0)", str(len(exclude)))
+    console.print(table)
+
+    if not apply:
+        console.print("[yellow]Preview only. Re-run with --apply to write .consurg.yaml[/yellow]")
+        return
+
+    data = _read_yaml() or {
+        "version": 1,
+        "scope": Path.cwd().name,
+        "active": True,
+        "reason": "",
+    }
+    data["working_set"] = include_context
+    data["reference"] = read_only
+    data.setdefault("signatures", [])
+    data.setdefault("visible", [])
+    data["reason"] = str(proposal.get("task", data.get("reason", "")))
+    _write_yaml(data)
+    console.print(f"[green]Scope written to {SCOPE_FILE} from proposal[/green]")
 
 
 _PY_EXTENSIONS = {".py"}
@@ -603,6 +665,20 @@ def wrap(ctx: typer.Context):
     finally:
         server.stop()
         lockfile.remove()
+
+
+@app.command(name="scaffold-pk-agents")
+def scaffold_pk_agents_cmd(
+    force: bool = typer.Option(False, "--force", help="Overwrite existing scaffold files"),
+):
+    """Scaffold pk-agent files for scope selection and excluded-context summarization."""
+    written = scaffold_pk_agents(Path.cwd(), force=force)
+    if written:
+        console.print("[green]Scaffolded pk-agent files:[/green]")
+        for p in written:
+            console.print(f"[dim]- {p.relative_to(Path.cwd())}[/dim]")
+    else:
+        console.print("[yellow]Scaffold already exists. Use --force to overwrite.[/yellow]")
 
 
 if __name__ == "__main__":

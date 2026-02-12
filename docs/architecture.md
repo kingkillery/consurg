@@ -35,6 +35,7 @@ consurg/
   __init__.py             Module docstring
   __main__.py             Entry point (calls app())
   cli.py                  Typer CLI (all commands)
+  pk_agents.py            pk-agent scaffold templates + writer
   scope.py                Scope dataclass, YAML loading, narrowing, conflict detection
   enforce.py              resolve_tier() - fnmatch-based tier resolution
 
@@ -73,7 +74,7 @@ hooks/
   enforce_guard.py        Guard-aware hook (dual-path: guard -> fallback)
 
 tests/
-  test_cli.py             CLI commands (init, add, remove, on, off, status, map)
+  test_cli.py             CLI commands (init/add/remove/on/off/status/map + pk-agent scaffold/apply-proposal)
   test_cli_phase3.py      Trace and git-diff commands
   test_enforce.py         Tier resolution
   test_hook.py            Hook enforcement (allow/deny)

@@ -71,6 +71,17 @@ Remove `.consurg.yaml` from the project root.
 
 Show current scope status: name, active/inactive, tier counts, and patterns.
 
+### `consurg audit-status`
+
+Show effective audit configuration and current local audit storage usage.
+
+Outputs:
+- enabled/disabled state
+- storage path
+- retention settings (`max_runs`, `max_age_days`, `max_bytes`)
+- redaction profile
+- current run directory count and byte usage
+
 ```
          Scope: auth-refactor (ACTIVE)
 +--------------+-------+--------------------+
@@ -242,6 +253,26 @@ consurg apply-proposal
 consurg apply-proposal --apply
 consurg apply-proposal --proposal-file alt/scope-proposal.yaml --apply
 ```
+
+## Audit Telemetry
+
+Audit persistence is opt-in and disabled by default.
+
+### Environment variables
+
+- `CONSURG_AUDIT_PERSIST=1` -- enable persistent audit traces (default disabled)
+- `CONSURG_AUDIT_MAX_RUNS=200`
+- `CONSURG_AUDIT_MAX_AGE_DAYS=14`
+- `CONSURG_AUDIT_MAX_BYTES=104857600`
+
+### Config file
+
+- `.consurg-audit.yaml` with retention and redaction settings
+- Environment variables override file values
+
+When enabled, `consurg wrap` persists redacted traces to `.pk-agent/runs/<timestamp>/trace.json`.
+
+See `docs/pk-agent-audit-integration.md` for full contract, schema, and policy details.
 
 ## Exit Codes
 

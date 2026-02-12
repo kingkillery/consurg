@@ -109,6 +109,37 @@ def test_status_no_scope(in_tmp):
     assert "No scope defined" in result.output
 
 
+def test_audit_status_defaults(in_tmp):
+    result = runner.invoke(app, ["audit-status"])
+    assert result.exit_code == 0
+    assert "enabled" in result.output
+    assert "false" in result.output
+    assert "run_dirs" in result.output
+
+
+def test_audit_status_with_env_and_runs(in_tmp):
+    runs = in_tmp / ".pk-agent" / "runs" / "20260212T010203Z"
+    runs.mkdir(parents=True)
+    (runs / "trace.json").write_text('{"schema_version":"1.0"}', encoding="ascii")
+
+    result = runner.invoke(
+        app,
+        ["audit-status"],
+        env={
+            "CONSURG_AUDIT_PERSIST": "1",
+            "CONSURG_AUDIT_MAX_RUNS": "9",
+            "CONSURG_AUDIT_MAX_AGE_DAYS": "3",
+            "CONSURG_AUDIT_MAX_BYTES": "2048",
+        },
+    )
+    assert result.exit_code == 0
+    assert "true" in result.output
+    assert "9" in result.output
+    assert "3" in result.output
+    assert "2048" in result.output
+    assert "1" in result.output
+
+
 def test_on_no_scope(in_tmp):
     result = runner.invoke(app, ["on"])
     assert result.exit_code == 1

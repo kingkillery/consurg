@@ -242,3 +242,20 @@ All other functionality uses Python stdlib:
 
 Dev:
 - `pytest>=7.0` -- testing
+
+## Audit Trace Integration
+
+Audit persistence is implemented as an opt-in path for wrapped commands.
+
+Flow:
+1. pk-agent run emits tool-call trace objects
+2. Redaction policy (`strict-v1`) sanitizes input/output fields
+3. Redacted trace persists to `.pk-agent/runs/<timestamp>/trace.json`
+4. Retention pruner enforces max age/count/bytes
+
+Trust boundaries:
+- Raw tool payloads are transient in memory
+- Persisted artifacts contain redacted-only content
+- Persistence failures are non-fatal to execution
+
+See `docs/pk-agent-audit-integration.md` for full schema and policy details.

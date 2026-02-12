@@ -128,6 +128,7 @@ explorer: false
 | `consurg remove FILES` | Remove patterns from all tiers |
 | `consurg on` / `off` | Activate or deactivate scope |
 | `consurg status` | Show tier counts and patterns |
+| `consurg audit-status` | Show effective audit config and local audit storage usage |
 | `consurg map` | Visualize files as a tree with tier badges |
 | `consurg trace ENTRIES [--depth N] [--apply]` | Build scope from dependency graph |
 | `consurg git-diff [BASE] [--apply]` | Build scope from branch diff |
@@ -189,6 +190,7 @@ Detailed documentation is in the [`docs/`](docs/) directory:
 - **[Export Adapters](docs/adapters.md)** -- Generating tool-specific scope formats
 - **[CLI Reference](docs/cli-reference.md)** -- Full reference for every command and option
 - **[Architecture](docs/architecture.md)** -- System design, threading model, data flow
+- **[pk-agent Audit Integration](docs/pk-agent-audit-integration.md)** -- Opt-in hardened audit telemetry contract (redaction + retention)
 
 ## Development
 

@@ -1,7 +1,10 @@
 import os
 import subprocess
 import sys
+import time
+import uuid
 from collections import deque
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -17,6 +20,7 @@ from consurg.adapters import (
     generate_cursor_rules,
     generate_generic_prompt,
 )
+from consurg.audit import audit_storage_stats, load_audit_config, persist_trace, should_audit_tool
 from consurg.pk_agents import scaffold_pk_agents
 from consurg.scope import Scope, load_scope
 from consurg.trace import DependencyGraph, resolve_python_imports, resolve_ts_imports
@@ -340,6 +344,26 @@ def apply_proposal(
     console.print(f"[green]Scope written to {SCOPE_FILE} from proposal[/green]")
 
 
+@app.command(name="audit-status")
+def audit_status():
+    """Show effective audit persistence configuration and storage usage."""
+    config = load_audit_config(Path.cwd())
+    stats = audit_storage_stats(config.storage_path)
+
+    table = Table(title="Audit Status")
+    table.add_column("Setting", style="bold")
+    table.add_column("Value")
+    table.add_row("enabled", "true" if config.enabled else "false")
+    table.add_row("storage_path", str(config.storage_path))
+    table.add_row("max_runs", str(config.max_runs))
+    table.add_row("max_age_days", str(config.max_age_days))
+    table.add_row("max_bytes", str(config.max_bytes))
+    table.add_row("redaction_profile", config.redaction_profile)
+    table.add_row("run_dirs", str(stats["runs"]))
+    table.add_row("storage_bytes", str(stats["bytes"]))
+    console.print(table)
+
+
 _PY_EXTENSIONS = {".py"}
 _TS_EXTENSIONS = {".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs"}
 
@@ -655,9 +679,46 @@ def wrap(ctx: typer.Context):
     env = os.environ.copy()
     env["CONSURG_GUARD_PORT"] = str(port)
     env["CONSURG_ACTIVE"] = "1"
+    started_at = datetime.now(UTC)
+    start_ms = int(started_at.timestamp() * 1000)
+    t0 = time.perf_counter()
+    tool_name = Path(ctx.args[0]).name
+    audit_config = load_audit_config(Path.cwd(), env=env)
+    should_persist = should_audit_tool(tool_name, audit_config)
 
     try:
-        result = subprocess.run(ctx.args, env=env)
+        run_kwargs: dict = {"env": env}
+        if should_persist:
+            run_kwargs.update({"capture_output": True, "text": True, "errors": "replace"})
+        result = subprocess.run(ctx.args, **run_kwargs)
+        if should_persist:
+            if result.stdout:
+                sys.stdout.write(result.stdout)
+            if result.stderr:
+                sys.stderr.write(result.stderr)
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            trace_call = {
+                "name": tool_name,
+                "type": "tool",
+                "start_time": start_ms,
+                "duration_ms": duration_ms,
+                "success": result.returncode == 0,
+                "input": {"argv": ctx.args},
+                "output": {
+                    "returncode": result.returncode,
+                    "stdout": result.stdout or "",
+                    "stderr": result.stderr or "",
+                },
+            }
+            try:
+                persist_trace(
+                    config=audit_config,
+                    run_id=str(uuid.uuid4()),
+                    started_at=started_at,
+                    tool_calls=[trace_call],
+                )
+            except Exception:
+                console.print("[yellow]Warning: failed to persist audit trace[/yellow]")
         raise typer.Exit(result.returncode)
     except FileNotFoundError:
         console.print(f"[red]Command not found: {ctx.args[0]}[/red]")

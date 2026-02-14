@@ -104,21 +104,29 @@ def _build_approval(state: GuardState) -> Panel | None:
     return Panel(text, title="\u26a1 APPROVAL REQUIRED", border_style="yellow")
 
 
+def _build_footer(state: GuardState) -> Panel:
+    text = Text()
+    text.append("  Press ", style="dim")
+    text.append("Q", style="bold white")
+    text.append(" to quit", style="dim")
+    return Panel(text, border_style="none", padding=(0, 0))
+
+
 def _build_layout(state: GuardState) -> Layout:
     layout = Layout()
     approval = _build_approval(state)
 
+    splits = [
+        Layout(_build_header(state), name="header", size=5),
+        Layout(_build_log_table(state), name="log"),
+    ]
+
     if approval:
-        layout.split_column(
-            Layout(_build_header(state), name="header", size=5),
-            Layout(_build_log_table(state), name="log"),
-            Layout(approval, name="approval", size=6),
-        )
-    else:
-        layout.split_column(
-            Layout(_build_header(state), name="header", size=5),
-            Layout(_build_log_table(state), name="log"),
-        )
+        splits.append(Layout(approval, name="approval", size=6))
+
+    splits.append(Layout(_build_footer(state), name="footer", size=1))
+
+    layout.split_column(*splits)
 
     return layout
 

@@ -3,7 +3,7 @@ import subprocess
 import sys
 import time
 import uuid
-from collections import deque
+from collections import defaultdict, deque
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -24,6 +24,7 @@ from consurg.audit import audit_storage_stats, load_audit_config, persist_trace,
 from consurg.pk_agents import scaffold_pk_agents
 from consurg.scope import Scope, load_scope
 from consurg.trace import DependencyGraph, resolve_python_imports, resolve_ts_imports
+from consurg.enforce import resolve_tier, resolve_tier_with_pattern
 
 app = typer.Typer(name="consurg", help="Context Surgeon - temporarily restrict AI coding agents to a declared subset of files.")
 console = Console()
@@ -46,6 +47,74 @@ def _read_yaml() -> dict | None:
 def _write_yaml(data: dict):
     with open(_scope_path(), "w") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
+def _repo_files() -> list[Path]:
+    cwd = Path.cwd()
+    try:
+        result = subprocess.run(
+            ["git", "ls-files"],
+            capture_output=True,
+            text=True,
+            cwd=str(cwd),
+        )
+        if result.returncode == 0:
+            return sorted(
+                Path(f) for f in result.stdout.strip().splitlines() if f.strip()
+            )
+    except FileNotFoundError:
+        pass
+
+    return sorted(
+        p.relative_to(cwd)
+        for p in cwd.rglob("*")
+        if p.is_file()
+        and ".git" not in p.parts
+        and "__pycache__" not in p.parts
+        and ".pytest_cache" not in p.parts
+        and "node_modules" not in p.parts
+        and ".next" not in p.parts
+        and "dist" not in p.parts
+        and "venv" not in p.parts
+        and ".venv" not in p.parts
+    )
+
+
+def _tier_label(tier: int) -> str:
+    labels = {4: "T4", 3: "T3", 2: "T2", 1: "T1", 0: "T0"}
+    return labels.get(tier, f"T{tier}")
+
+
+def _status_line(scope: Scope | None, include_timestamp: bool = True) -> str:
+    if scope is None:
+        return "CS:INACTIVE scope=<none> T4=0 T3=0 T2=0 T1=0"
+
+    active = "ACTIVE" if scope.active else "INACTIVE"
+    scope_name = scope.scope_name or "unnamed"
+    counts = _tier_counts(scope)
+    if include_timestamp:
+        try:
+            mtime = datetime.fromtimestamp(_scope_path().stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        except FileNotFoundError:
+            mtime = "unknown"
+        return (
+            f"CS:{scope_name} {active} "
+            f"T4={counts[4]} T3={counts[3]} T2={counts[2]} T1={counts[1]} "
+            f"last_modified={mtime}"
+        )
+    return (
+        f"CS:{scope_name} {active} "
+        f"T4={counts[4]} T3={counts[3]} T2={counts[2]} T1={counts[1]}"
+    )
+
+
+def _tier_counts(scope: Scope) -> dict[int, int]:
+    return {
+        4: len(scope.working_set),
+        3: len(scope.reference),
+        2: len(scope.signatures),
+        1: len(scope.visible),
+    }
 
 
 @app.command()
@@ -204,7 +273,9 @@ def clean(
 
 
 @app.command()
-def status():
+def status(
+    short: Annotated[bool, typer.Option("--short", help="Print one-line status output")] = False,
+):
     """Show current scope status."""
     data = _read_yaml()
     if data is None:
@@ -213,6 +284,11 @@ def status():
 
     scope_name = data.get("scope", "unnamed")
     active = data.get("active", False)
+    if short:
+        scope = load_scope(_scope_path())
+        console.print(_status_line(scope))
+        return
+
     active_str = "[green]ACTIVE[/green]" if active else "[red]INACTIVE[/red]"
 
     table = Table(title=f"Scope: {scope_name} ({active_str})")
@@ -232,6 +308,13 @@ def status():
         table.add_row(label, str(len(patterns)), ", ".join(patterns_display) if patterns_display else "-")
 
     console.print(table)
+
+
+@app.command()
+def prompt():
+    """Print a one-line active scope indicator for shell prompts."""
+    scope = load_scope(_scope_path())
+    console.print(_status_line(scope, include_timestamp=False))
 
 
 @app.command(name="map")
@@ -261,27 +344,7 @@ def map_cmd(
         0: ("[--]", "dim", "dash"),
     }
 
-    # Use git ls-files for .gitignore-aware file discovery; fallback to rglob
-    try:
-        result = subprocess.run(
-            ["git", "ls-files"],
-            capture_output=True, text=True, cwd=str(cwd),
-        )
-        if result.returncode == 0:
-            files = sorted(
-                Path(f) for f in result.stdout.strip().splitlines() if f.strip()
-            )
-        else:
-            raise FileNotFoundError
-    except FileNotFoundError:
-        files = sorted(
-            p.relative_to(cwd) for p in cwd.rglob("*") if p.is_file()
-            and ".git" not in p.parts and "__pycache__" not in p.parts
-            and ".pytest_cache" not in p.parts and "node_modules" not in p.parts
-            and ".next" not in p.parts and "dist" not in p.parts
-            and "venv" not in p.parts and ".venv" not in p.parts
-        )
-
+    files = _repo_files()
     # Filter by depth if specified
     if depth is not None:
         files = [f for f in files if len(f.parts) <= depth]
@@ -304,6 +367,125 @@ def map_cmd(
         tree.add(text)
 
     console.print(tree)
+
+
+@app.command()
+def ls(
+    tier: Annotated[int | None, typer.Option("--tier", help="Show only this tier (1-4).")] = None,
+    paths_only: Annotated[bool, typer.Option("--paths-only", help="Output resolved paths only.")] = False,
+    counts: Annotated[bool, typer.Option("--counts", help="Show pattern match counts per tier.")] = False,
+):
+    """List resolved files by effective tier."""
+    if tier is not None and tier not in (1, 2, 3, 4):
+        console.print("[red]Invalid tier. Use one of 1, 2, 3, 4[/red]")
+        raise typer.Exit(1)
+
+    scope = load_scope(_scope_path())
+    if scope is None:
+        console.print("No scope defined. Run consurg init")
+        return
+
+    files = _repo_files()
+    if not files:
+        console.print("[yellow]No files discovered in repository[/yellow]")
+        return
+
+    bucket: dict[int, list[str]] = {4: [], 3: [], 2: [], 1: []}
+    file_to_match: dict[str, tuple[int, str | None]] = {}
+
+    for fp in files:
+        fp_str = str(fp).replace("\\", "/")
+        matched_tier, _, matched_pattern = resolve_tier_with_pattern(fp_str, scope)
+        if matched_tier == 0:
+            continue
+        if tier is not None and matched_tier != tier:
+            continue
+        bucket[matched_tier].append(fp_str)
+        if matched_pattern is not None:
+            file_to_match[fp_str] = (matched_tier, matched_pattern)
+
+    if not any(bucket.values()):
+        console.print("[yellow]No scoped files resolved[/yellow]")
+        return
+
+    if paths_only:
+        for t in (4, 3, 2, 1):
+            if not bucket.get(t):
+                continue
+            for fp in sorted(bucket[t]):
+                console.print(fp)
+        return
+
+    table = Table(title="Resolved Scope Files")
+    table.add_column("Tier", style="bold")
+    table.add_column("Files")
+
+    for t in (4, 3, 2, 1):
+        if tier is not None and t != tier:
+            continue
+        paths = sorted(bucket[t])
+        if paths:
+            table.add_row(_tier_label(t), ", ".join(paths))
+
+    console.print(table)
+
+    if counts:
+        count_matrix: dict[tuple[int, str], int] = defaultdict(int)
+        pattern_buckets = {
+            4: scope.working_set,
+            3: scope.reference,
+            2: scope.signatures,
+            1: scope.visible,
+        }
+        for t, patterns in pattern_buckets.items():
+            for pattern in patterns:
+                if tier is not None and t != tier:
+                    continue
+                count_matrix[(t, pattern)] = 0
+
+        for fp, (matched_tier, matched_pattern) in file_to_match.items():
+            if tier is not None and matched_tier != tier:
+                continue
+            if matched_pattern is not None:
+                count_matrix[(matched_tier, matched_pattern)] += 1
+
+        count_table = Table(title="Pattern Match Counts")
+        count_table.add_column("Tier")
+        count_table.add_column("Pattern")
+        count_table.add_column("Count", justify="right")
+        for t in (4, 3, 2, 1):
+            if tier is not None and t != tier:
+                continue
+            for pattern in pattern_buckets[t]:
+                count_table.add_row(_tier_label(t), pattern, str(count_matrix[(t, pattern)]))
+
+        console.print(count_table)
+
+
+@app.command()
+def why(path: str):
+    """Show why a path is included and which pattern matched it."""
+    scope = load_scope(_scope_path())
+    if scope is None:
+        console.print("No scope defined. Run consurg init")
+        return
+
+    target = Path(path)
+    if target.is_absolute():
+        try:
+            normalized_path = target.relative_to(Path.cwd()).as_posix()
+        except ValueError:
+            normalized_path = target.as_posix()
+    else:
+        normalized_path = target.as_posix()
+    tier, label, matched_pattern = resolve_tier_with_pattern(normalized_path, scope)
+    if tier == 0:
+        console.print(f"[red]{normalized_path}[/red] => BLOCKED (no pattern match)")
+        raise typer.Exit(1)
+
+    console.print(
+        f"{normalized_path} => [green]{label}[/green] via pattern [yellow]{matched_pattern}[/yellow]"
+    )
 
 
 @app.command()

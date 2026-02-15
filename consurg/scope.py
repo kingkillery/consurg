@@ -1,12 +1,20 @@
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 
 
 class ScopeError(Exception):
     pass
+
+
+def pattern_matches(file_path: str, pattern: str) -> bool:
+    normalized_file = file_path.replace("\\", "/")
+    normalized_pattern = pattern.replace("\\", "/")
+    return fnmatch(normalized_file, normalized_pattern) or PurePosixPath(
+        normalized_file
+    ).match(normalized_pattern)
 
 
 @dataclass
@@ -65,7 +73,7 @@ def _parent_tier(file: str, parent: Scope) -> int:
     ]
     for tier_num, patterns in tiers:
         for pattern in patterns:
-            if fnmatch(file, pattern):
+            if pattern_matches(file, pattern):
                 return tier_num
     return 0
 
@@ -101,7 +109,7 @@ def detect_write_conflicts(scopes: list[Scope]) -> list[str]:
         for b in scopes[i + 1:]:
             for pattern_a in a.working_set:
                 for pattern_b in b.working_set:
-                    if fnmatch(pattern_a, pattern_b) or fnmatch(pattern_b, pattern_a):
+                    if pattern_matches(pattern_a, pattern_b) or pattern_matches(pattern_b, pattern_a):
                         if pattern_a not in conflicts:
                             conflicts.append(pattern_a)
                         if pattern_b != pattern_a and pattern_b not in conflicts:

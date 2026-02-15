@@ -1,0 +1,6 @@
+short_description: Configure, scope, and run Consurg for safe AI-agent context control
+display_name: Context Surgeon
+default_prompt: >-
+  Use this skill to configure and operate Consurg CLI scopes for AI agents.
+  Do this by setting scope tiers, wiring/unwiring tools, enabling enforcement,
+  building scope via trace or git-diff, and using guard/wrap for runtime control.

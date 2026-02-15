@@ -87,11 +87,25 @@ def add(
         key = "working_set"
 
     existing = data.get(key, [])
+    added_patterns = []
+    skipped_patterns = []
+
     for f in files:
         pattern = f.replace("\\", "/")
         if pattern not in existing:
             existing.append(pattern)
+            added_patterns.append(pattern)
+        else:
+            skipped_patterns.append(pattern)
+
     data[key] = existing
+
+    # UX: Warn about non-glob files that don't exist
+    for pat in added_patterns:
+        # Simple heuristic: if it contains *, ?, or [, treat as glob
+        is_glob = any(c in pat for c in "*?[")
+        if not is_glob and not Path(pat).exists():
+            console.print(f"[yellow]Warning: File '{pat}' not found locally.[/yellow]")
 
     # Drift detection
     metadata = data.get("metadata", {})
@@ -109,7 +123,14 @@ def add(
             ))
 
     _write_yaml(data)
-    console.print(f"[green]Added {len(files)} pattern(s) to {key}[/green]")
+
+    if added_patterns:
+        console.print(f"[green]Added {len(added_patterns)} pattern(s) to {key}[/green]")
+    if skipped_patterns:
+        console.print(f"[yellow]Skipped {len(skipped_patterns)} duplicate(s)[/yellow]")
+    if not added_patterns and not skipped_patterns:
+        # Should technically not happen due to required arg, but safe fallback
+        console.print("[yellow]No patterns provided.[/yellow]")
 
 
 @app.command()

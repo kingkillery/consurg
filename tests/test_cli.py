@@ -376,3 +376,115 @@ def test_scope_selector_agent_prompt_has_required_output_keys():
     assert "`include_context`" in SCOPE_SELECTOR_AGENT
     assert "`read_only`" in SCOPE_SELECTOR_AGENT
     assert "`exclude`" in SCOPE_SELECTOR_AGENT
+
+
+def test_file_context_print_mode_respects_denylist(in_tmp):
+    (in_tmp / "allowed.py").write_text("print('allowed')", encoding="utf-8")
+    (in_tmp / "blocked.secret").write_text("secret", encoding="utf-8")
+    with (in_tmp / ".consurg.yaml").open("w", encoding="utf-8") as f:
+        yaml.dump(
+            {
+                "file_context_ui": {
+                    "never_include": ["*.secret"],
+                    "max_file_bytes": 2048,
+                    "max_total_bytes": 4096,
+                    "hide_excluded": False,
+                }
+            },
+            f,
+        )
+
+    result = runner.invoke(app, ["file-context", "--print", "allowed.py", "blocked.secret"])
+    assert result.exit_code == 0
+    assert "allowed.py" in result.output
+    assert "blocked.secret" not in result.output
+
+
+def test_file_context_print_mode_includes_readme(in_tmp):
+    (in_tmp / "README.md").write_text("# Project README", encoding="utf-8")
+
+    result = runner.invoke(app, ["file-context", "--print", "README.md"])
+    assert result.exit_code == 0
+    assert "## FILE: README.md" in result.output
+    assert "# Project README" in result.output
+
+
+# --- prompt command tests ---
+
+def test_prompt_no_scope(in_tmp):
+    result = runner.invoke(app, ["prompt"])
+    assert result.exit_code == 0
+    assert "INACTIVE" in result.output
+    assert "T4=0" in result.output
+    assert "T3=0" in result.output
+    assert "T2=0" in result.output
+    assert "T1=0" in result.output
+
+
+def test_prompt_active_scope(in_tmp):
+    runner.invoke(app, ["init", "my-scope"])
+    runner.invoke(app, ["add", "src/*.py"])
+    runner.invoke(app, ["add", "--read", "docs/*.md"])
+    result = runner.invoke(app, ["prompt"])
+    assert result.exit_code == 0
+    assert "my-scope" in result.output
+    assert "ACTIVE" in result.output
+    assert "T4=1" in result.output
+    assert "T3=1" in result.output
+
+
+def test_prompt_inactive_scope(in_tmp):
+    runner.invoke(app, ["init", "my-scope"])
+    runner.invoke(app, ["off"])
+    result = runner.invoke(app, ["prompt"])
+    assert result.exit_code == 0
+    assert "INACTIVE" in result.output
+
+
+def test_prompt_no_timestamp(in_tmp):
+    runner.invoke(app, ["init", "my-scope"])
+    result = runner.invoke(app, ["prompt"])
+    assert result.exit_code == 0
+    assert "last_modified" not in result.output
+
+
+# --- why command tests ---
+
+def test_why_t4_match(in_tmp):
+    runner.invoke(app, ["init"])
+    runner.invoke(app, ["add", "src/*.py"])
+    result = runner.invoke(app, ["why", "src/main.py"])
+    assert result.exit_code == 0
+    assert "READ-WRITE" in result.output
+    assert "src/*.py" in result.output
+
+
+def test_why_t3_match(in_tmp):
+    runner.invoke(app, ["init"])
+    runner.invoke(app, ["add", "--read", "docs/*.md"])
+    result = runner.invoke(app, ["why", "docs/readme.md"])
+    assert result.exit_code == 0
+    assert "READ-ONLY" in result.output
+    assert "docs/*.md" in result.output
+
+
+def test_why_t2_match(in_tmp):
+    runner.invoke(app, ["init"])
+    runner.invoke(app, ["add", "--sig", "types/*.pyi"])
+    result = runner.invoke(app, ["why", "types/core.pyi"])
+    assert result.exit_code == 0
+    assert "SIGNATURE" in result.output
+    assert "types/*.pyi" in result.output
+
+
+def test_why_blocked(in_tmp):
+    runner.invoke(app, ["init"])
+    runner.invoke(app, ["add", "src/*.py"])
+    result = runner.invoke(app, ["why", "other/file.txt"])
+    assert result.exit_code == 1
+    assert "BLOCKED" in result.output
+
+
+def test_why_no_scope(in_tmp):
+    result = runner.invoke(app, ["why", "any/file.py"])
+    assert "No scope defined" in result.output

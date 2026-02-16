@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__notebooklm-mcp__notebook_query",
+      "Bash(pip install:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(.venv/Scripts/python -m pytest tests/test_file_context_ui.py tests/test_cli.py -v)",
+      "Bash(python:*)"
+    ]
+  }
+}

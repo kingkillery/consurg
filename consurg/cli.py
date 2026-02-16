@@ -25,6 +25,7 @@ from consurg.pk_agents import scaffold_pk_agents
 from consurg.scope import Scope, load_scope
 from consurg.trace import DependencyGraph, resolve_python_imports, resolve_ts_imports
 from consurg.enforce import resolve_tier, resolve_tier_with_pattern
+from consurg.file_context_ui import compose_prompt, load_file_context_ui_config, start_ui_server
 
 app = typer.Typer(name="consurg", help="Context Surgeon - temporarily restrict AI coding agents to a declared subset of files.")
 console = Console()
@@ -115,6 +116,21 @@ def _tier_counts(scope: Scope) -> dict[int, int]:
         2: len(scope.signatures),
         1: len(scope.visible),
     }
+
+
+@app.command()
+def file_context(
+    files: list[str] | None = typer.Argument(None, help="Optional file paths to preselect in the UI."),
+    print_output: bool = typer.Option(False, "--print", help="Print composed prompt to stdout without opening GUI."),
+):
+    """Open an interactive file-context picker UI or print the composed prompt."""
+    config = load_file_context_ui_config(Path.cwd())
+    selected_files = files or []
+    if print_output:
+        output = compose_prompt(selected_files, Path.cwd(), config, format="markdown")
+        console.print(output)
+        return
+    start_ui_server(Path.cwd(), config, selected_files)
 
 
 @app.command()

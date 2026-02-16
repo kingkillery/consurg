@@ -39,3 +39,25 @@ def test_unmatched_returns_blocked():
 def test_visible_tier():
     scope = _scope(visible=["config/*"])
     assert resolve_tier("config/settings.json", scope) == (1, "EXISTENCE")
+
+
+# --- Component-level matching through tier resolution ---
+
+def test_bare_dir_working_set():
+    scope = _scope(working_set=["src"])
+    assert resolve_tier("src/main.py", scope) == (4, "READ-WRITE")
+
+
+def test_bare_dir_reference():
+    scope = _scope(reference=["docs"])
+    assert resolve_tier("docs/readme.md", scope) == (3, "READ-ONLY")
+
+
+def test_bare_dir_no_cross_boundary():
+    scope = _scope(working_set=["src"])
+    assert resolve_tier("src-extra/file.py", scope) == (0, "BLOCKED")
+
+
+def test_bare_dir_visible():
+    scope = _scope(visible=[".git"])
+    assert resolve_tier(".git/config", scope) == (1, "EXISTENCE")

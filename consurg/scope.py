@@ -12,9 +12,37 @@ class ScopeError(Exception):
 def pattern_matches(file_path: str, pattern: str) -> bool:
     normalized_file = file_path.replace("\\", "/")
     normalized_pattern = pattern.replace("\\", "/")
-    return fnmatch(normalized_file, normalized_pattern) or PurePosixPath(
+
+    # Strip leading ./
+    while normalized_file.startswith("./"):
+        normalized_file = normalized_file[2:]
+    while normalized_pattern.startswith("./"):
+        normalized_pattern = normalized_pattern[2:]
+
+    if not normalized_file or not normalized_pattern:
+        return False
+
+    # Original two-algorithm check (preserves existing behavior)
+    if fnmatch(normalized_file, normalized_pattern) or PurePosixPath(
         normalized_file
-    ).match(normalized_pattern)
+    ).match(normalized_pattern):
+        return True
+
+    # Branch: pattern contains **
+    if "**" in normalized_pattern:
+        return PurePosixPath(normalized_file).match(f"**/{normalized_pattern}")
+
+    # Branch: pattern contains / (path-like pattern)
+    if "/" in normalized_pattern:
+        if PurePosixPath(normalized_file).match(f"**/{normalized_pattern}"):
+            return True
+        if PurePosixPath(normalized_file).match(f"{normalized_pattern}/**"):
+            return True
+        return False
+
+    # Branch: simple name/glob — match against each path component
+    parts = normalized_file.split("/")
+    return any(fnmatch(part, normalized_pattern) for part in parts)
 
 
 @dataclass

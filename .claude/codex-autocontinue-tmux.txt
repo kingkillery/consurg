@@ -1,0 +1,20 @@
+Codex Autocontinue + tmux setup notes
+
+What was configured:
+- Added Windows shim: C:\Users\prest\bin\tmux.cmd
+  - forwards tmux calls to WSL: wsl.exe -e tmux %*
+- Wired Codex notify hook in: C:\Users\prest\.codex\config.toml
+  - notify = ["python", "C:/Users/prest/.codex/codex_autocontinue_tmux.py"]
+- Hook file: C:\Users\prest\.codex\codex_autocontinue_tmux.py
+- Target pane: codex-autocontinue:0.0
+- Env vars (user-level):
+  - CODEX_TMUX_TARGET=codex-autocontinue:0.0
+  - CODEX_AUTOCONTINUE_TURNS=8
+  - CODEX_AUTOCONTINUE_TEXT=continue
+
+Is this needed per directory?
+- No. This is global user-level setup, not project-specific.
+- It works in any directory as long as Codex is running inside the target tmux pane.
+
+If you want this project to use a different pane target, re-run wiring with:
+python C:/Users/prest/.agents/skills/codex-autocontinue-tmux/scripts/wire_autocontinue_tmux.py --tmux-target <your-target> --no-prompt

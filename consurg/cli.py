@@ -1,7 +1,10 @@
 import os
 import subprocess
 import sys
+import time
+import uuid
 from collections import deque
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -17,6 +20,8 @@ from consurg.adapters import (
     generate_cursor_rules,
     generate_generic_prompt,
 )
+from consurg.audit import audit_storage_stats, load_audit_config, persist_trace, should_audit_tool
+from consurg.pk_agents import scaffold_pk_agents
 from consurg.scope import Scope, load_scope
 from consurg.trace import DependencyGraph, resolve_python_imports, resolve_ts_imports
 
@@ -83,8 +88,9 @@ def add(
 
     existing = data.get(key, [])
     for f in files:
-        if f not in existing:
-            existing.append(f)
+        pattern = f.replace("\\", "/")
+        if pattern not in existing:
+            existing.append(pattern)
     data[key] = existing
 
     # Drift detection
@@ -179,7 +185,8 @@ def status():
     ]
     for label, key in tiers:
         patterns = data.get(key, [])
-        table.add_row(label, str(len(patterns)), ", ".join(patterns) if patterns else "-")
+        patterns_display = [p.replace("\\", "/") for p in patterns]
+        table.add_row(label, str(len(patterns)), ", ".join(patterns_display) if patterns_display else "-")
 
     console.print(table)
 
@@ -213,13 +220,14 @@ def map_cmd():
                    and ".pytest_cache" not in p.parts)
 
     for fp in files:
-        tier_num, _ = resolve_tier(str(fp), scope)
+        fp_str = str(fp).replace("\\", "/")
+        tier_num, _ = resolve_tier(fp_str, scope)
         label, style, block_type = tier_styles.get(tier_num, ("[--]", "dim", "dash"))
         bar = "\u2588" * min(tier_num, 4) if block_type == "block" else "-" * 2
         text = Text()
         text.append(f"{label} ", style=style)
         text.append(bar + " ", style=style)
-        text.append(str(fp))
+        text.append(fp_str)
         tree.add(text)
 
     console.print(tree)
@@ -276,6 +284,87 @@ def export(
         console.print(" ".join(result))
     else:
         console.print(result, highlight=False)
+
+
+@app.command(name="apply-proposal")
+def apply_proposal(
+    proposal_file: str = typer.Option(
+        ".consurg/recommendations/scope-proposal.yaml",
+        "--proposal-file",
+        help="Path to scope proposal YAML file",
+    ),
+    apply: bool = typer.Option(False, "--apply", help="Write mapped values to .consurg.yaml"),
+):
+    """Map scope proposal output into Consurg scope tiers."""
+    proposal_path = Path(proposal_file)
+    if not proposal_path.exists():
+        console.print(f"[red]Proposal file not found: {proposal_path}[/red]")
+        raise typer.Exit(1)
+
+    with open(proposal_path, encoding="utf-8") as f:
+        proposal = yaml.safe_load(f) or {}
+
+    required_keys = ("include_context", "read_only", "exclude")
+    missing = [k for k in required_keys if k not in proposal]
+    if missing:
+        console.print(f"[red]Invalid proposal: missing keys: {', '.join(missing)}[/red]")
+        raise typer.Exit(1)
+
+    for key in required_keys:
+        if not isinstance(proposal.get(key), list) or not all(isinstance(x, str) for x in proposal[key]):
+            console.print(f"[red]Invalid proposal: '{key}' must be a list of strings[/red]")
+            raise typer.Exit(1)
+
+    include_context = proposal.get("include_context", [])
+    read_only = proposal.get("read_only", [])
+    exclude = proposal.get("exclude", [])
+
+    table = Table(title="Scope Proposal Mapping")
+    table.add_column("Proposal Key", style="bold")
+    table.add_column("Consurg Tier")
+    table.add_column("Count", justify="right")
+    table.add_row("include_context", "working_set (T4)", str(len(include_context)))
+    table.add_row("read_only", "reference (T3)", str(len(read_only)))
+    table.add_row("exclude", "implicit blocked (T0)", str(len(exclude)))
+    console.print(table)
+
+    if not apply:
+        console.print("[yellow]Preview only. Re-run with --apply to write .consurg.yaml[/yellow]")
+        return
+
+    data = _read_yaml() or {
+        "version": 1,
+        "scope": Path.cwd().name,
+        "active": True,
+        "reason": "",
+    }
+    data["working_set"] = include_context
+    data["reference"] = read_only
+    data.setdefault("signatures", [])
+    data.setdefault("visible", [])
+    data["reason"] = str(proposal.get("task", data.get("reason", "")))
+    _write_yaml(data)
+    console.print(f"[green]Scope written to {SCOPE_FILE} from proposal[/green]")
+
+
+@app.command(name="audit-status")
+def audit_status():
+    """Show effective audit persistence configuration and storage usage."""
+    config = load_audit_config(Path.cwd())
+    stats = audit_storage_stats(config.storage_path)
+
+    table = Table(title="Audit Status")
+    table.add_column("Setting", style="bold")
+    table.add_column("Value")
+    table.add_row("enabled", "true" if config.enabled else "false")
+    table.add_row("storage_path", str(config.storage_path))
+    table.add_row("max_runs", str(config.max_runs))
+    table.add_row("max_age_days", str(config.max_age_days))
+    table.add_row("max_bytes", str(config.max_bytes))
+    table.add_row("redaction_profile", config.redaction_profile)
+    table.add_row("run_dirs", str(stats["runs"]))
+    table.add_row("storage_bytes", str(stats["bytes"]))
+    console.print(table)
 
 
 _PY_EXTENSIONS = {".py"}
@@ -593,9 +682,46 @@ def wrap(ctx: typer.Context):
     env = os.environ.copy()
     env["CONSURG_GUARD_PORT"] = str(port)
     env["CONSURG_ACTIVE"] = "1"
+    started_at = datetime.now(UTC)
+    start_ms = int(started_at.timestamp() * 1000)
+    t0 = time.perf_counter()
+    tool_name = Path(ctx.args[0]).name
+    audit_config = load_audit_config(Path.cwd(), env=env)
+    should_persist = should_audit_tool(tool_name, audit_config)
 
     try:
-        result = subprocess.run(ctx.args, env=env)
+        run_kwargs: dict = {"env": env}
+        if should_persist:
+            run_kwargs.update({"capture_output": True, "text": True, "errors": "replace"})
+        result = subprocess.run(ctx.args, **run_kwargs)
+        if should_persist:
+            if result.stdout:
+                sys.stdout.write(result.stdout)
+            if result.stderr:
+                sys.stderr.write(result.stderr)
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            trace_call = {
+                "name": tool_name,
+                "type": "tool",
+                "start_time": start_ms,
+                "duration_ms": duration_ms,
+                "success": result.returncode == 0,
+                "input": {"argv": ctx.args},
+                "output": {
+                    "returncode": result.returncode,
+                    "stdout": result.stdout or "",
+                    "stderr": result.stderr or "",
+                },
+            }
+            try:
+                persist_trace(
+                    config=audit_config,
+                    run_id=str(uuid.uuid4()),
+                    started_at=started_at,
+                    tool_calls=[trace_call],
+                )
+            except Exception:
+                console.print("[yellow]Warning: failed to persist audit trace[/yellow]")
         raise typer.Exit(result.returncode)
     except FileNotFoundError:
         console.print(f"[red]Command not found: {ctx.args[0]}[/red]")
@@ -603,6 +729,20 @@ def wrap(ctx: typer.Context):
     finally:
         server.stop()
         lockfile.remove()
+
+
+@app.command(name="scaffold-pk-agents")
+def scaffold_pk_agents_cmd(
+    force: bool = typer.Option(False, "--force", help="Overwrite existing scaffold files"),
+):
+    """Scaffold pk-agent files for scope selection and excluded-context summarization."""
+    written = scaffold_pk_agents(Path.cwd(), force=force)
+    if written:
+        console.print("[green]Scaffolded pk-agent files:[/green]")
+        for p in written:
+            console.print(f"[dim]- {p.relative_to(Path.cwd())}[/dim]")
+    else:
+        console.print("[yellow]Scaffold already exists. Use --force to overwrite.[/yellow]")
 
 
 if __name__ == "__main__":

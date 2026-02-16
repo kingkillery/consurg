@@ -74,6 +74,33 @@ class TestWrapCommand:
         assert result.exit_code != 0
         assert "No scope" in result.output
 
+    def test_wrap_audit_disabled_by_default(self, scope_dir):
+        result = runner.invoke(app, ["wrap", "--", sys.executable, "-c", "print('ok')"])
+        assert result.exit_code == 0
+        assert not (scope_dir / ".pk-agent" / "runs").exists()
+
+    def test_wrap_audit_persists_redacted_trace(self, scope_dir):
+        script = "print('token=sk-1234567890abcdef')"
+        result = runner.invoke(
+            app,
+            ["wrap", "--", sys.executable, "-c", script],
+            env={"CONSURG_AUDIT_PERSIST": "1"},
+        )
+        assert result.exit_code == 0
+
+        runs_dir = scope_dir / ".pk-agent" / "runs"
+        assert runs_dir.exists()
+        trace_files = list(runs_dir.glob("*/trace.json"))
+        assert len(trace_files) == 1
+
+        payload = json.loads(trace_files[0].read_text(encoding="ascii"))
+        assert payload["schema_version"] == "1.0"
+        assert "tool_calls" in payload and len(payload["tool_calls"]) == 1
+        call = payload["tool_calls"][0]
+        assert "redacted_output" in call
+        assert "sk-1234567890abcdef" not in call["redacted_output"]
+        assert "[REDACTED]" in call["redacted_output"]
+
 
 class TestWrapLockfile:
     def test_lockfile_written_during_wrap(self, scope_dir):

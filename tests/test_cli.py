@@ -6,6 +6,7 @@ import yaml
 from typer.testing import CliRunner
 
 from consurg.cli import app
+from consurg.pk_agents import SCOPE_SELECTOR_AGENT
 
 runner = CliRunner()
 
@@ -71,6 +72,14 @@ def test_add_no_duplicates(in_tmp):
     assert data["working_set"] == ["src/*.py"]
 
 
+def test_add_normalizes_backslashes(in_tmp):
+    runner.invoke(app, ["init"])
+    # Simulate Windows-style paths
+    runner.invoke(app, ["add", "src\\main.py"])
+    data = _read_scope(in_tmp)
+    assert data["working_set"] == ["src/main.py"]
+
+
 def test_add_without_init(in_tmp):
     result = runner.invoke(app, ["add", "file.py"])
     assert result.exit_code == 1
@@ -103,9 +112,54 @@ def test_status_shows_info(in_tmp):
     assert "test-scope" in result.output
 
 
+def test_status_displays_forward_slashes(in_tmp):
+    runner.invoke(app, ["init"])
+    # Manually inject backslashes into the yaml to simulate old data or Windows storage
+    data = _read_scope(in_tmp)
+    data["working_set"] = ["src\\main.py"]
+    with open(in_tmp / ".consurg.yaml", "w") as f:
+        yaml.dump(data, f)
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert "src/main.py" in result.output
+    assert "src\\main.py" not in result.output
+
+
 def test_status_no_scope(in_tmp):
     result = runner.invoke(app, ["status"])
     assert "No scope defined" in result.output
+
+
+def test_audit_status_defaults(in_tmp):
+    result = runner.invoke(app, ["audit-status"])
+    assert result.exit_code == 0
+    assert "enabled" in result.output
+    assert "false" in result.output
+    assert "run_dirs" in result.output
+
+
+def test_audit_status_with_env_and_runs(in_tmp):
+    runs = in_tmp / ".pk-agent" / "runs" / "20260212T010203Z"
+    runs.mkdir(parents=True)
+    (runs / "trace.json").write_text('{"schema_version":"1.0"}', encoding="ascii")
+
+    result = runner.invoke(
+        app,
+        ["audit-status"],
+        env={
+            "CONSURG_AUDIT_PERSIST": "1",
+            "CONSURG_AUDIT_MAX_RUNS": "9",
+            "CONSURG_AUDIT_MAX_AGE_DAYS": "3",
+            "CONSURG_AUDIT_MAX_BYTES": "2048",
+        },
+    )
+    assert result.exit_code == 0
+    assert "true" in result.output
+    assert "9" in result.output
+    assert "3" in result.output
+    assert "2048" in result.output
+    assert "1" in result.output
 
 
 def test_on_no_scope(in_tmp):
@@ -193,3 +247,84 @@ def test_unpin_removes_file(in_tmp):
 def test_unpin_no_file(in_tmp):
     result = runner.invoke(app, ["unpin"])
     assert "No scope file" in result.output
+
+
+def test_scaffold_pk_agents_creates_expected_files(in_tmp):
+    result = runner.invoke(app, ["scaffold-pk-agents"])
+    assert result.exit_code == 0
+
+    selector = in_tmp / ".agents" / "pk-agents" / "consurg-scope-selector.pk-agent"
+    summarizer = in_tmp / ".agents" / "pk-agents" / "consurg-excluded-summarizer.pk-agent"
+    runbook = in_tmp / ".agents" / "pk-agents" / "README.md"
+
+    assert selector.exists()
+    assert summarizer.exists()
+    assert runbook.exists()
+
+    assert "include_context" in selector.read_text(encoding="utf-8")
+    assert "excluded-context.md" in summarizer.read_text(encoding="utf-8")
+
+
+def test_scaffold_pk_agents_no_overwrite_without_force(in_tmp):
+    runner.invoke(app, ["scaffold-pk-agents"])
+    selector = in_tmp / ".agents" / "pk-agents" / "consurg-scope-selector.pk-agent"
+    selector.write_text("custom", encoding="utf-8")
+
+    result = runner.invoke(app, ["scaffold-pk-agents"])
+    assert result.exit_code == 0
+    assert "already exists" in result.output.lower()
+    assert selector.read_text(encoding="utf-8") == "custom"
+
+
+def test_scaffold_pk_agents_force_overwrites(in_tmp):
+    runner.invoke(app, ["scaffold-pk-agents"])
+    selector = in_tmp / ".agents" / "pk-agents" / "consurg-scope-selector.pk-agent"
+    selector.write_text("custom", encoding="utf-8")
+
+    result = runner.invoke(app, ["scaffold-pk-agents", "--force"])
+    assert result.exit_code == 0
+    assert "custom" not in selector.read_text(encoding="utf-8")
+
+
+def test_apply_proposal_preview_and_apply(in_tmp):
+    proposal_dir = in_tmp / ".consurg" / "recommendations"
+    proposal_dir.mkdir(parents=True)
+    proposal = {
+        "task": "auth bugfix",
+        "include_context": ["src/auth/login.py"],
+        "read_only": ["src/core/db.py"],
+        "exclude": ["docs/**"],
+        "rationale": [],
+        "risks": [],
+    }
+    with open(proposal_dir / "scope-proposal.yaml", "w", encoding="utf-8") as f:
+        yaml.dump(proposal, f)
+
+    preview = runner.invoke(app, ["apply-proposal"])
+    assert preview.exit_code == 0
+    assert "Preview only" in preview.output
+    assert not (in_tmp / ".consurg.yaml").exists()
+
+    applied = runner.invoke(app, ["apply-proposal", "--apply"])
+    assert applied.exit_code == 0
+    data = _read_scope(in_tmp)
+    assert data["working_set"] == ["src/auth/login.py"]
+    assert data["reference"] == ["src/core/db.py"]
+    assert data["reason"] == "auth bugfix"
+
+
+def test_apply_proposal_rejects_missing_keys(in_tmp):
+    proposal_dir = in_tmp / ".consurg" / "recommendations"
+    proposal_dir.mkdir(parents=True)
+    with open(proposal_dir / "scope-proposal.yaml", "w", encoding="utf-8") as f:
+        yaml.dump({"include_context": []}, f)
+
+    result = runner.invoke(app, ["apply-proposal", "--apply"])
+    assert result.exit_code == 1
+    assert "missing keys" in result.output
+
+
+def test_scope_selector_agent_prompt_has_required_output_keys():
+    assert "`include_context`" in SCOPE_SELECTOR_AGENT
+    assert "`read_only`" in SCOPE_SELECTOR_AGENT
+    assert "`exclude`" in SCOPE_SELECTOR_AGENT

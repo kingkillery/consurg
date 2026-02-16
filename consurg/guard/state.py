@@ -19,6 +19,9 @@ class AccessEvent:
     label: str
     decision: str  # "allow" or "deny"
     promoted: bool = False  # True if user promoted tier during this request
+    request_type: str = "file"  # "file" | "command" | "network"
+    command: str = ""  # populated when request_type == "command"
+    hostname: str = ""  # populated when request_type == "network"
 
 
 @dataclass

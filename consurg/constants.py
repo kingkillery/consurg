@@ -8,5 +8,8 @@ PATH_FIELDS = {
     "Glob": "path",
 }
 
+COMMAND_TOOLS = {"Bash"}
+COMMAND_FIELD = "command"
+
 READ_TOOLS = {"Read", "Grep", "Glob"}
 WRITE_TOOLS = {"Edit", "Write"}

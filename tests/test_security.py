@@ -94,3 +94,71 @@ def test_invalid_nested_file_path(server):
     assert code == 400
     assert "error" in body
     assert "must be a string" in body["error"]
+
+
+# --- T17: Command injection / bypass attempts ---
+
+from consurg.sandbox.commands import classify_command
+from consurg.scope import SandboxConfig
+
+
+def _sandbox_scope(autonomy=0, command_deny=None):
+    return Scope(
+        version=2,
+        scope_name="sec-test",
+        active=True,
+        working_set=["src/*.py"],
+        sandbox=SandboxConfig(
+            autonomy=autonomy,
+            command_deny=command_deny or [],
+        ),
+    )
+
+
+class TestCommandInjectionPrevention:
+    """Verify that shell injection patterns are blocked at low autonomy."""
+
+    def test_pipe_chain_blocked(self):
+        r = classify_command("ls | rm -rf /", tier=3, scope=_sandbox_scope(autonomy=0))
+        assert not r.allow
+
+    def test_semicolon_chain_blocked(self):
+        r = classify_command("echo hello; rm -rf /", tier=3, scope=_sandbox_scope(autonomy=0))
+        assert not r.allow
+
+    def test_and_chain_blocked(self):
+        r = classify_command("true && rm -rf /", tier=3, scope=_sandbox_scope(autonomy=0))
+        assert not r.allow
+
+    def test_or_chain_blocked(self):
+        r = classify_command("false || rm -rf /", tier=3, scope=_sandbox_scope(autonomy=0))
+        assert not r.allow
+
+    def test_subshell_blocked(self):
+        r = classify_command("echo $(cat /etc/passwd)", tier=3, scope=_sandbox_scope(autonomy=0))
+        assert not r.allow
+
+    def test_backtick_blocked(self):
+        r = classify_command("echo `whoami`", tier=3, scope=_sandbox_scope(autonomy=0))
+        assert not r.allow
+
+    def test_env_expansion_blocked(self):
+        r = classify_command("echo ${HOME}", tier=3, scope=_sandbox_scope(autonomy=1))
+        assert not r.allow
+
+    def test_deny_list_cannot_be_bypassed_by_tier(self):
+        """Even at T4, deny list is absolute."""
+        scope = _sandbox_scope(autonomy=3, command_deny=["rm -rf *"])
+        r = classify_command("rm -rf *", tier=4, scope=scope)
+        assert not r.allow
+
+    def test_deny_list_prefix_match(self):
+        """Deny entries match prefixes to prevent flag-appending bypass."""
+        scope = _sandbox_scope(command_deny=["git push --force"])
+        r = classify_command("git push --force --set-upstream origin evil", tier=4, scope=scope)
+        assert not r.allow
+
+    def test_safe_command_still_works(self):
+        """Sanity: normal commands aren't blocked."""
+        r = classify_command("git diff HEAD", tier=3, scope=_sandbox_scope(autonomy=2))
+        assert r.allow

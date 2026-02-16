@@ -150,6 +150,7 @@ def init(name: str = typer.Argument(None, help="Scope name (defaults to director
     }
     _write_yaml(data)
     console.print(f"[green]Scope '{scope_name}' initialized in {SCOPE_FILE}[/green]")
+    console.print("[dim]Next: Run 'consurg add <files>' to populate your scope.[/dim]")
 
 
 @app.command()
@@ -691,7 +692,8 @@ def trace(
         console.print(f"[red]Files not found: {', '.join(missing)}[/red]")
         raise typer.Exit(1)
 
-    graph = _build_graph(entry_files, depth)
+    with console.status("[bold green]Tracing dependencies...[/bold green]"):
+        graph = _build_graph(entry_files, depth)
     normalized_entries = [str(Path(f)).replace("\\", "/") for f in entry_files]
     tiers = graph.classify_tiers(normalized_entries)
 
@@ -766,9 +768,10 @@ def git_diff_cmd(
         console.print("[yellow]No changed files found[/yellow]")
         return
 
-    # Build graph from changed files to find their deps
-    graph = _build_graph(changed_files, depth=1)
-    tiers = graph.classify_tiers(changed_files)
+    with console.status("[bold green]Analyzing diff...[/bold green]"):
+        # Build graph from changed files to find their deps
+        graph = _build_graph(changed_files, depth=1)
+        tiers = graph.classify_tiers(changed_files)
 
     # Ensure all changed files are at least tier 4
     for cf in changed_files:

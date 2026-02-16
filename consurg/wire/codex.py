@@ -23,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from consurg.constants import WRITE_TOOLS
 from consurg.enforce import resolve_tier
 from consurg.guard.lockfile import GuardLockfile
 from consurg.scope import load_scope
@@ -61,10 +62,9 @@ def check_access(tool_name, file_path, cwd):
         return True
 
     tier, _ = resolve_tier(file_path, scope)
-    write_tools = {"Edit", "Write"}
     if tier <= 1:
         return False
-    if tier <= 3 and tool_name in write_tools:
+    if tier <= 3 and tool_name in WRITE_TOOLS:
         return False
     return True
 

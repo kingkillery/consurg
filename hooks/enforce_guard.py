@@ -18,19 +18,9 @@ from pathlib import Path
 # Allow importing from the consurg package
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from consurg.constants import PATH_FIELDS, READ_TOOLS, WRITE_TOOLS
 from consurg.enforce import resolve_tier
 from consurg.scope import load_scope
-
-PATH_FIELDS = {
-    "Read": "file_path",
-    "Edit": "file_path",
-    "Write": "file_path",
-    "Grep": "path",
-    "Glob": "path",
-}
-
-READ_TOOLS = {"Read", "Grep", "Glob"}
-WRITE_TOOLS = {"Edit", "Write"}
 
 LOCKFILE_NAME = ".consurg-guard.lock"
 

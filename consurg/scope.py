@@ -46,6 +46,21 @@ def pattern_matches(file_path: str, pattern: str) -> bool:
 
 
 @dataclass
+class NetworkPolicy:
+    policy: str = "unrestricted"  # "allowlist" | "denylist" | "unrestricted"
+    allow: list[str] = field(default_factory=list)
+    deny: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SandboxConfig:
+    backend: str = "none"  # "auto" | "docker" | "seatbelt" | "wsl2" | "none"
+    autonomy: int = 2  # 0=recon, 1=safe-edits, 2=dev, 3=risky
+    network: NetworkPolicy = field(default_factory=NetworkPolicy)
+    command_deny: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Scope:
     version: int = 1
     scope_name: str = ""
@@ -57,6 +72,7 @@ class Scope:
     visible: list[str] = field(default_factory=list)
     dynamic_deps: list[str] = field(default_factory=list)
     explorer: bool = False
+    sandbox: SandboxConfig = field(default_factory=SandboxConfig)
 
 
 def load_scope(path: Path) -> Scope | None:
@@ -71,12 +87,27 @@ def load_scope(path: Path) -> Scope | None:
         return None
 
     version = data.get("version")
-    if version != 1:
-        raise ScopeError(f"Unsupported scope version: {version} (expected 1)")
+    if version not in (1, 2):
+        raise ScopeError(f"Unsupported scope version: {version} (expected 1 or 2)")
 
     active = data.get("active", True)
     if not isinstance(active, bool):
         raise ScopeError(f"'active' must be a boolean, got {type(active).__name__}")
+
+    sandbox = SandboxConfig()
+    if version == 2:
+        sb = data.get("sandbox", {})
+        net = sb.get("network", {})
+        sandbox = SandboxConfig(
+            backend=sb.get("backend", "none"),
+            autonomy=sb.get("autonomy", 2),
+            network=NetworkPolicy(
+                policy=net.get("policy", "unrestricted"),
+                allow=net.get("allow", []),
+                deny=net.get("deny", []),
+            ),
+            command_deny=sb.get("commands", {}).get("deny", []),
+        )
 
     return Scope(
         version=version,
@@ -89,6 +120,7 @@ def load_scope(path: Path) -> Scope | None:
         visible=data.get("visible", []),
         dynamic_deps=data.get("dynamic_deps", []),
         explorer=data.get("explorer", False),
+        sandbox=sandbox,
     )
 
 

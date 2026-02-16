@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from consurg.scope import load_scope
 from consurg.wire.base import BaseWirer, WireResult
+
+SCOPE_FILE = ".consurg.yaml"
 
 
 class ClaudeWirer(BaseWirer):
@@ -16,10 +19,19 @@ class ClaudeWirer(BaseWirer):
     def _hooks_path(self) -> Path:
         return self.project_dir / ".claude" / "hooks.json"
 
+    def _has_sandbox_config(self) -> bool:
+        """Check if the current scope has sandbox configuration."""
+        scope = load_scope(self.project_dir / SCOPE_FILE)
+        return scope is not None and scope.version >= 2 and scope.sandbox.backend != "none"
+
     def _build_hook_entry(self) -> dict:
+        # Prefix with CONSURG_SANDBOX env var when sandbox is configured
+        cmd = f"python {self.hook_script}"
+        if self._has_sandbox_config():
+            cmd = f"CONSURG_SANDBOX_ENABLED=1 {cmd}"
         return {
             "type": "command",
-            "command": f"python {self.hook_script}",
+            "command": cmd,
         }
 
     def wire(self) -> WireResult:

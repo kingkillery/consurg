@@ -134,11 +134,14 @@ def file_context(
 
 
 @app.command()
-def init(name: str = typer.Argument(None, help="Scope name (defaults to directory name)")):
+def init(
+    name: str = typer.Argument(None, help="Scope name (defaults to directory name)"),
+    sandbox: bool = typer.Option(False, "--sandbox", help="Generate v2 schema with sandbox section"),
+):
     """Initialize a new .consurg.yaml scope file."""
     scope_name = name or Path.cwd().name
     data = {
-        "version": 1,
+        "version": 2 if sandbox else 1,
         "scope": scope_name,
         "active": True,
         "reason": "",
@@ -148,8 +151,22 @@ def init(name: str = typer.Argument(None, help="Scope name (defaults to director
         "visible": [],
         "dynamic_deps": [],
     }
+    if sandbox:
+        data["sandbox"] = {
+            "backend": "auto",
+            "autonomy": 2,
+            "network": {
+                "policy": "unrestricted",
+                "allow": [],
+                "deny": [],
+            },
+            "commands": {
+                "deny": [],
+            },
+        }
     _write_yaml(data)
-    console.print(f"[green]Scope '{scope_name}' initialized in {SCOPE_FILE}[/green]")
+    version_label = "v2 (sandbox)" if sandbox else "v1"
+    console.print(f"[green]Scope '{scope_name}' initialized in {SCOPE_FILE} ({version_label})[/green]")
     console.print("[dim]Next: Run 'consurg add <files>' to populate your scope.[/dim]")
 
 
@@ -346,6 +363,30 @@ def status(
         table.add_row(label, str(len(patterns)), ", ".join(patterns_display) if patterns_display else "-")
 
     console.print(table)
+
+    # Show sandbox section for v2 scopes
+    scope = load_scope(_scope_path())
+    if scope and scope.version >= 2:
+        sb = scope.sandbox
+        sb_table = Table(title="Sandbox Configuration")
+        sb_table.add_column("Setting", style="bold")
+        sb_table.add_column("Value")
+
+        backend_display = sb.backend
+        if sb.backend == "auto":
+            from consurg.sandbox.detect import detect_backend
+            detected = detect_backend()
+            backend_display = f"auto → {detected}"
+
+        sb_table.add_row("Backend", backend_display)
+        sb_table.add_row("Autonomy", f"{sb.autonomy} ({'recon' if sb.autonomy == 0 else 'safe-edits' if sb.autonomy == 1 else 'dev' if sb.autonomy == 2 else 'risky'})")
+        sb_table.add_row("Network Policy", sb.network.policy)
+        if sb.network.allow:
+            sb_table.add_row("Network Allow", ", ".join(sb.network.allow))
+        if sb.network.deny:
+            sb_table.add_row("Network Deny", ", ".join(sb.network.deny))
+        sb_table.add_row("Command Deny", str(len(sb.command_deny)) + " entries" if sb.command_deny else "none")
+        console.print(sb_table)
 
 
 @app.command()
@@ -638,6 +679,56 @@ def apply_proposal(
     data["reason"] = str(proposal.get("task", data.get("reason", "")))
     _write_yaml(data)
     console.print(f"[green]Scope written to {SCOPE_FILE} from proposal[/green]")
+
+
+@app.command(name="sandbox-profile")
+def sandbox_profile(
+    backend: str = typer.Option("auto", "--backend", "-b", help="Backend to preview: auto|docker|seatbelt|wsl2"),
+):
+    """Preview the sandbox profile generated from the current scope (no execution)."""
+    scope = load_scope(_scope_path())
+    if scope is None:
+        console.print("[red]No scope defined. Run consurg init[/red]")
+        raise typer.Exit(1)
+
+    from consurg.sandbox.detect import resolve_backend, SandboxBackendError
+
+    try:
+        resolved = resolve_backend(backend)
+    except SandboxBackendError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+
+    if resolved == "none":
+        console.print("[yellow]No sandbox backend available. Use --backend=docker|seatbelt|wsl2 to force.[/yellow]")
+        raise typer.Exit(0)
+
+    project_root = Path.cwd()
+    console.print(f"[bold]Backend: {resolved}[/bold]\n")
+
+    if resolved == "docker":
+        from consurg.sandbox.docker import generate_docker_profile
+        profile = generate_docker_profile(scope, project_root)
+        console.print("[dim]Docker run arguments:[/dim]")
+        console.print(" ".join(profile.to_run_args()))
+        console.print(f"\n[dim]Volumes: {len(profile.volumes)}, Network: {profile.network_mode}[/dim]")
+
+    elif resolved == "seatbelt":
+        from consurg.sandbox.seatbelt import generate_seatbelt_profile
+        profile_str = generate_seatbelt_profile(scope, project_root)
+        console.print("[dim]Seatbelt profile (.sb):[/dim]")
+        console.print(profile_str)
+
+    elif resolved == "wsl2":
+        from consurg.sandbox.wsl2 import generate_wsl2_profile
+        profile = generate_wsl2_profile(scope, project_root)
+        console.print("[dim]Setup commands:[/dim]")
+        for cmd in profile.setup_commands:
+            console.print(f"  {cmd}")
+        console.print(f"\n[dim]Teardown commands:[/dim]")
+        for cmd in profile.teardown_commands:
+            console.print(f"  {cmd}")
+        console.print(f"\n[dim]Distro: {profile.wsl_distro}, Workspace: {profile.workspace_dir}[/dim]")
 
 
 @app.command(name="audit-status")
@@ -942,10 +1033,13 @@ def wire(
 @app.command(
     context_settings={"allow_extra_args": True, "allow_interspersed_args": False},
 )
-def wrap(ctx: typer.Context):
+def wrap(
+    ctx: typer.Context,
+    sandbox: str = typer.Option("none", "--sandbox", help="Sandbox backend: auto|docker|seatbelt|wsl2|none"),
+):
     """Wrap a command with scope enforcement (embedded headless guard).
 
-    Usage: consurg wrap -- <command> [args...]
+    Usage: consurg wrap [--sandbox=auto] -- <command> [args...]
     """
     if not ctx.args:
         console.print("[red]No command provided. Usage: consurg wrap -- <command>[/red]")
@@ -985,39 +1079,84 @@ def wrap(ctx: typer.Context):
     should_persist = should_audit_tool(tool_name, audit_config)
 
     try:
-        run_kwargs: dict = {"env": env}
-        if should_persist:
-            run_kwargs.update({"capture_output": True, "text": True, "errors": "replace"})
-        result = subprocess.run(ctx.args, **run_kwargs)
-        if should_persist:
-            if result.stdout:
-                sys.stdout.write(result.stdout)
-            if result.stderr:
-                sys.stderr.write(result.stderr)
-            duration_ms = int((time.perf_counter() - t0) * 1000)
-            trace_call = {
-                "name": tool_name,
-                "type": "tool",
-                "start_time": start_ms,
-                "duration_ms": duration_ms,
-                "success": result.returncode == 0,
-                "input": {"argv": ctx.args},
-                "output": {
-                    "returncode": result.returncode,
-                    "stdout": result.stdout or "",
-                    "stderr": result.stderr or "",
-                },
-            }
+        if sandbox != "none":
+            # Physical sandbox execution
+            from consurg.sandbox.detect import SandboxBackendError
+            from consurg.sandbox.runner import SandboxRunner
+
             try:
-                persist_trace(
-                    config=audit_config,
-                    run_id=str(uuid.uuid4()),
-                    started_at=started_at,
-                    tool_calls=[trace_call],
-                )
-            except Exception:
-                console.print("[yellow]Warning: failed to persist audit trace[/yellow]")
-        raise typer.Exit(result.returncode)
+                runner = SandboxRunner(scope=scope, backend=sandbox, project_root=Path.cwd())
+            except SandboxBackendError as e:
+                console.print(f"[red]{e}[/red]")
+                raise typer.Exit(1)
+
+            console.print(f"[dim]sandbox: {runner.backend}[/dim]")
+            sb_result = runner.run(ctx.args, env=env)
+            if sb_result.stdout:
+                sys.stdout.write(sb_result.stdout)
+            if sb_result.stderr:
+                sys.stderr.write(sb_result.stderr)
+
+            if should_persist:
+                duration_ms = int((time.perf_counter() - t0) * 1000)
+                trace_call = {
+                    "name": tool_name,
+                    "type": "tool",
+                    "start_time": start_ms,
+                    "duration_ms": duration_ms,
+                    "success": sb_result.returncode == 0,
+                    "input": {"argv": ctx.args, "sandbox": runner.backend},
+                    "output": {
+                        "returncode": sb_result.returncode,
+                        "stdout": sb_result.stdout,
+                        "stderr": sb_result.stderr,
+                    },
+                }
+                try:
+                    persist_trace(
+                        config=audit_config,
+                        run_id=str(uuid.uuid4()),
+                        started_at=started_at,
+                        tool_calls=[trace_call],
+                    )
+                except Exception:
+                    console.print("[yellow]Warning: failed to persist audit trace[/yellow]")
+            raise typer.Exit(sb_result.returncode)
+        else:
+            # Direct execution (existing behavior)
+            run_kwargs: dict = {"env": env}
+            if should_persist:
+                run_kwargs.update({"capture_output": True, "text": True, "errors": "replace"})
+            result = subprocess.run(ctx.args, **run_kwargs)
+            if should_persist:
+                if result.stdout:
+                    sys.stdout.write(result.stdout)
+                if result.stderr:
+                    sys.stderr.write(result.stderr)
+                duration_ms = int((time.perf_counter() - t0) * 1000)
+                trace_call = {
+                    "name": tool_name,
+                    "type": "tool",
+                    "start_time": start_ms,
+                    "duration_ms": duration_ms,
+                    "success": result.returncode == 0,
+                    "input": {"argv": ctx.args},
+                    "output": {
+                        "returncode": result.returncode,
+                        "stdout": result.stdout or "",
+                        "stderr": result.stderr or "",
+                    },
+                }
+                try:
+                    persist_trace(
+                        config=audit_config,
+                        run_id=str(uuid.uuid4()),
+                        started_at=started_at,
+                        tool_calls=[trace_call],
+                    )
+                except Exception:
+                    console.print("[yellow]Warning: failed to persist audit trace[/yellow]")
+            raise typer.Exit(result.returncode)
     except FileNotFoundError:
         console.print(f"[red]Command not found: {ctx.args[0]}[/red]")
         raise typer.Exit(1)

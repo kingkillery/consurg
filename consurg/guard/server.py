@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING
 
 from consurg.constants import PATH_FIELDS, READ_TOOLS, WRITE_TOOLS
 from consurg.enforce import resolve_tier
+from consurg.sandbox.commands import classify_command
+from consurg.sandbox.network import classify_network
 
 if TYPE_CHECKING:
     from consurg.guard.state import GuardState
@@ -71,6 +73,106 @@ class _GuardHandler(BaseHTTPRequestHandler):
             self._respond(400, {"error": "request body must be a JSON object"})
             return
 
+        request_type = data.get("request_type", "file")
+        if request_type not in ("file", "command", "network"):
+            self._respond(400, {"error": f"invalid request_type: {request_type}"})
+            return
+
+        if request_type == "command":
+            self._handle_command_evaluate(data)
+        elif request_type == "network":
+            self._handle_network_evaluate(data)
+        else:
+            self._handle_file_evaluate(data)
+
+    def _handle_command_evaluate(self, data: dict):
+        """Evaluate a command execution request against tier + sandbox policy."""
+        tool_name = data.get("tool_name", "Bash")
+        command = data.get("command", "")
+        if not command:
+            self._respond(200, {"decision": "allow", "message": "no command"})
+            return
+
+        # Use the highest tier in the scope for command decisions (workspace-level)
+        tier = 4 if self.state.scope.working_set else 0
+        decision = classify_command(command, tier, self.state.scope)
+
+        from consurg.guard.state import AccessEvent
+
+        event = AccessEvent(
+            timestamp=time.time(),
+            tool_name=tool_name,
+            file_path="",
+            tier=decision.tier,
+            label="COMMAND",
+            decision="allow" if decision.allow else "deny",
+            request_type="command",
+            command=command,
+        )
+        self.state.add_event(event)
+
+        if decision.allow:
+            self._respond(200, {
+                "decision": "allow",
+                "tier": decision.tier,
+                "label": "COMMAND",
+                "reason": decision.reason,
+            })
+        else:
+            self._respond(200, {
+                "decision": "deny",
+                "tier": decision.tier,
+                "label": "COMMAND",
+                "reason": decision.reason,
+                "message": f"[CONTEXT SURGEON] command denied: {decision.reason}",
+            })
+
+    def _handle_network_evaluate(self, data: dict):
+        """Evaluate a network access request against tier + sandbox policy."""
+        tool_name = data.get("tool_name", "")
+        hostname = data.get("hostname", "")
+        if not hostname:
+            self._respond(200, {"decision": "allow", "message": "no hostname"})
+            return
+
+        # Use the highest tier in the scope for network decisions
+        tier = 4 if self.state.scope.working_set else 0
+        decision = classify_network(hostname, tier, self.state.scope)
+
+        from consurg.guard.state import AccessEvent
+
+        event = AccessEvent(
+            timestamp=time.time(),
+            tool_name=tool_name,
+            file_path="",
+            tier=decision.tier,
+            label="NETWORK",
+            decision="allow" if decision.allow else "deny",
+            request_type="network",
+            hostname=decision.hostname,
+        )
+        self.state.add_event(event)
+
+        if decision.allow:
+            self._respond(200, {
+                "decision": "allow",
+                "tier": decision.tier,
+                "label": "NETWORK",
+                "hostname": decision.hostname,
+                "reason": decision.reason,
+            })
+        else:
+            self._respond(200, {
+                "decision": "deny",
+                "tier": decision.tier,
+                "label": "NETWORK",
+                "hostname": decision.hostname,
+                "reason": decision.reason,
+                "message": f"[CONTEXT SURGEON] network denied: {decision.reason}",
+            })
+
+    def _handle_file_evaluate(self, data: dict):
+        """Evaluate a file access request (original logic)."""
         tool_name = data.get("tool_name", "")
         if not isinstance(tool_name, str):
             self._respond(400, {"error": "tool_name must be a string"})

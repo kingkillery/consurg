@@ -14,6 +14,7 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import TYPE_CHECKING
 
+from consurg.constants import PATH_FIELDS, READ_TOOLS, WRITE_TOOLS
 from consurg.enforce import resolve_tier
 
 if TYPE_CHECKING:
@@ -72,7 +73,6 @@ class _GuardHandler(BaseHTTPRequestHandler):
 
         # If file_path not provided directly, try to extract from tool_input
         if not file_path:
-            from hooks.enforce import PATH_FIELDS
             path_field = PATH_FIELDS.get(tool_name, "")
             file_path = tool_input.get(path_field, "") if path_field else ""
 
@@ -83,9 +83,7 @@ class _GuardHandler(BaseHTTPRequestHandler):
         tier, label = resolve_tier(file_path, self.state.scope)
 
         # Determine if this is a write tool
-        write_tools = {"Edit", "Write"}
-        read_tools = {"Read", "Grep", "Glob"}
-        is_write = tool_name in write_tools
+        is_write = tool_name in WRITE_TOOLS
 
         # Check auto-approved patterns first
         if file_path in self.state.auto_approved:
@@ -98,7 +96,7 @@ class _GuardHandler(BaseHTTPRequestHandler):
                 return
 
         # Explorer mode: allow reads
-        if self.state.scope.explorer and tool_name in read_tools:
+        if self.state.scope.explorer and tool_name in READ_TOOLS:
             self._allow(tool_name, file_path, tier, label)
             return
 

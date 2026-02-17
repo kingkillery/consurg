@@ -128,6 +128,7 @@ explorer: false
 | `consurg remove FILES` | Remove patterns from all tiers |
 | `consurg on` / `off` | Activate or deactivate scope |
 | `consurg status` | Show tier counts and patterns |
+| `consurg audit-status` | Show effective audit config and local audit storage usage |
 | `consurg map` | Visualize files as a tree with tier badges |
 | `consurg trace ENTRIES [--depth N] [--apply]` | Build scope from dependency graph |
 | `consurg git-diff [BASE] [--apply]` | Build scope from branch diff |
@@ -135,6 +136,8 @@ explorer: false
 | `consurg guard [-i] [--port N] [--no-tui]` | Start interactive scope firewall |
 | `consurg wire TOOL [--unwire]` | Auto-configure hooks for a tool |
 | `consurg wrap -- CMD [ARGS]` | Run command with embedded scope enforcement |
+| `consurg scaffold-pk-agents [--force]` | Create pk-agent scope selector + excluded-context summarizer |
+| `consurg apply-proposal [--proposal-file PATH] [--apply]` | Map scope-proposal output into `.consurg.yaml` |
 | `consurg pin` / `unpin` | Save or remove scope file |
 
 ## Supported Tools
@@ -149,6 +152,31 @@ explorer: false
 
 Unwire with `consurg wire <tool> --unwire`.
 
+## pk-agent Scope Automation
+
+Create the two-agent system for scope planning and excluded-context review:
+
+```bash
+consurg scaffold-pk-agents
+```
+
+This generates:
+- `.agents/pk-agents/consurg-scope-selector.pk-agent`
+- `.agents/pk-agents/consurg-excluded-summarizer.pk-agent`
+- `.agents/pk-agents/README.md` (runbook)
+
+Apply proposal output into Consurg tiers:
+
+```bash
+consurg apply-proposal --apply
+```
+
+Install dependency if needed:
+
+```bash
+npm i -g pk-agent
+```
+
 ## Documentation
 
 Detailed documentation is in the [`docs/`](docs/) directory:
@@ -162,6 +190,7 @@ Detailed documentation is in the [`docs/`](docs/) directory:
 - **[Export Adapters](docs/adapters.md)** -- Generating tool-specific scope formats
 - **[CLI Reference](docs/cli-reference.md)** -- Full reference for every command and option
 - **[Architecture](docs/architecture.md)** -- System design, threading model, data flow
+- **[pk-agent Audit Integration](docs/pk-agent-audit-integration.md)** -- Opt-in hardened audit telemetry contract (redaction + retention)
 
 ## Development
 

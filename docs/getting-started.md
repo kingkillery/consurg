@@ -164,6 +164,52 @@ consurg git-diff main --apply
 
 All files changed relative to `main` become T4 (working_set), their direct dependencies become T3 (reference).
 
+## Agentic Scope Planning (pk-agent)
+
+You can use a two-agent workflow to recommend scope boundaries and summarize excluded files.
+
+### 1. Scaffold the agents
+
+```bash
+consurg scaffold-pk-agents
+```
+
+If needed:
+
+```bash
+npm i -g pk-agent
+```
+
+### 2. Describe the task
+
+Create `TASK_REQUEST.md` in project root with the requested coding task.
+
+### 3. Run selector + summarizer
+
+```bash
+pk-agent run .agents/pk-agents/consurg-scope-selector.pk-agent
+pk-agent run .agents/pk-agents/consurg-excluded-summarizer.pk-agent
+```
+
+Expected outputs:
+- `.consurg/recommendations/scope-proposal.yaml`
+- `.consurg/recommendations/scope-proposal.md`
+- `.consurg/recommendations/excluded-context.md`
+
+### 4. Apply proposal to `.consurg.yaml`
+
+Preview mapping:
+
+```bash
+consurg apply-proposal
+```
+
+Write mapping:
+
+```bash
+consurg apply-proposal --apply
+```
+
 ## Next Steps
 
 - [Tier Model](tiers.md) -- Understand the 5-tier access model in depth

@@ -71,6 +71,17 @@ Remove `.consurg.yaml` from the project root.
 
 Show current scope status: name, active/inactive, tier counts, and patterns.
 
+### `consurg audit-status`
+
+Show effective audit configuration and current local audit storage usage.
+
+Outputs:
+- enabled/disabled state
+- storage path
+- retention settings (`max_runs`, `max_age_days`, `max_bytes`)
+- redaction profile
+- current run directory count and byte usage
+
 ```
          Scope: auth-refactor (ACTIVE)
 +--------------+-------+--------------------+
@@ -203,6 +214,65 @@ consurg wrap -- python my_script.py
 ```
 
 The wrapped command's exit code is propagated. The guard starts on a random port and cleans up automatically.
+
+## pk-agent Scope Workflow
+
+### `consurg scaffold-pk-agents [OPTIONS]`
+
+Scaffold two `pk-agent` agents for scope planning:
+- `consurg-scope-selector.pk-agent`
+- `consurg-excluded-summarizer.pk-agent`
+
+Also creates `.agents/pk-agents/README.md` with a runbook.
+
+| Option | Description |
+|--------|-------------|
+| `--force` | Overwrite existing scaffold files |
+
+```bash
+consurg scaffold-pk-agents
+consurg scaffold-pk-agents --force
+```
+
+### `consurg apply-proposal [OPTIONS]`
+
+Map a scope proposal into `.consurg.yaml`.
+
+Expected proposal keys:
+- `include_context` -> mapped to `working_set` (T4)
+- `read_only` -> mapped to `reference` (T3)
+- `exclude` -> remains implicit T0 blocked (not written as a tier list)
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--proposal-file PATH` | `.consurg/recommendations/scope-proposal.yaml` | Path to proposal YAML |
+| `--apply` | false | Write mapped values to `.consurg.yaml` (without this, preview only) |
+
+```bash
+consurg apply-proposal
+consurg apply-proposal --apply
+consurg apply-proposal --proposal-file alt/scope-proposal.yaml --apply
+```
+
+## Audit Telemetry
+
+Audit persistence is opt-in and disabled by default.
+
+### Environment variables
+
+- `CONSURG_AUDIT_PERSIST=1` -- enable persistent audit traces (default disabled)
+- `CONSURG_AUDIT_MAX_RUNS=200`
+- `CONSURG_AUDIT_MAX_AGE_DAYS=14`
+- `CONSURG_AUDIT_MAX_BYTES=104857600`
+
+### Config file
+
+- `.consurg-audit.yaml` with retention and redaction settings
+- Environment variables override file values
+
+When enabled, `consurg wrap` persists redacted traces to `.pk-agent/runs/<timestamp>/trace.json`.
+
+See `docs/pk-agent-audit-integration.md` for full contract, schema, and policy details.
 
 ## Exit Codes
 

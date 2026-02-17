@@ -1,5 +1,6 @@
 import json
 import re
+from functools import lru_cache
 from pathlib import Path
 
 from consurg.trace.graph import DependencyKind
@@ -162,6 +163,7 @@ def _try_tsconfig_paths(
     return None
 
 
+@lru_cache(maxsize=None)
 def _load_tsconfig(root: Path) -> tuple[dict[str, list[str]], str | None]:
     tsconfig_path = root / "tsconfig.json"
     if not tsconfig_path.exists():

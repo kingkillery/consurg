@@ -65,6 +65,21 @@ Pin the current scope. Currently defers to `consurg init` for creation.
 
 Remove `.consurg.yaml` from the project root.
 
+### `consurg clean [OPTIONS]`
+
+Deactivate the current scope, unwire all tools, and optionally remove `.consurg.yaml`. This is the recommended command for finishing a scoped session.
+
+| Option | Description |
+|--------|-------------|
+| `--keep-scope` | Skip removing `.consurg.yaml` (leaves scope file in an inactive state) |
+
+Equivalent to running `consurg off`, `consurg wire <tool> --unwire` for all wired tools, and `consurg unpin`.
+
+```bash
+consurg clean
+consurg clean --keep-scope
+```
+
 ## Inspection
 
 ### `consurg status`
@@ -94,9 +109,14 @@ Outputs:
 +--------------+-------+--------------------+
 ```
 
-### `consurg map`
+### `consurg map [OPTIONS]`
 
-Visualize every file in the project as a tree with tier badges.
+Visualize every file in the project as a tree with tier badges. Uses `git ls-files` for .gitignore-aware file discovery (falls back to rglob if not in a git repo).
+
+| Option | Description |
+|--------|-------------|
+| `--depth N` / `-d N` | Maximum directory depth to traverse |
+| `--scoped-only` | Only show files with tier >= 1 (hide T0 blocked entries) |
 
 ```
 auth-refactor

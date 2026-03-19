@@ -25,7 +25,12 @@ from consurg.pk_agents import scaffold_pk_agents
 from consurg.scope import Scope, load_scope
 from consurg.trace import DependencyGraph, resolve_python_imports, resolve_ts_imports
 from consurg.enforce import resolve_tier, resolve_tier_with_pattern
-from consurg.file_context_ui import compose_prompt, load_file_context_ui_config, start_ui_server
+from consurg.file_context_ui import (
+    IGNORED_DIR_NAMES,
+    compose_prompt,
+    load_file_context_ui_config,
+    start_ui_server,
+)
 
 app = typer.Typer(name="consurg", help="Context Surgeon - temporarily restrict AI coding agents to a declared subset of files.")
 console = Console()
@@ -69,15 +74,7 @@ def _repo_files() -> list[Path]:
     return sorted(
         p.relative_to(cwd)
         for p in cwd.rglob("*")
-        if p.is_file()
-        and ".git" not in p.parts
-        and "__pycache__" not in p.parts
-        and ".pytest_cache" not in p.parts
-        and "node_modules" not in p.parts
-        and ".next" not in p.parts
-        and "dist" not in p.parts
-        and "venv" not in p.parts
-        and ".venv" not in p.parts
+        if p.is_file() and not any(part in IGNORED_DIR_NAMES for part in p.parts)
     )
 
 

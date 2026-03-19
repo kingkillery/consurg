@@ -28,6 +28,18 @@ class FileContextUIConfig:
     hide_excluded: bool
 
 
+IGNORED_DIR_NAMES = {
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+    "node_modules",
+    ".next",
+    "dist",
+    "venv",
+    ".venv",
+}
+
+
 _DEFAULT_DENY_PATTERNS = [
     ".git",
     "__pycache__",
@@ -104,7 +116,7 @@ def list_candidate_files(cwd: Path, config: FileContextUIConfig | None = None) -
     for path in cwd.rglob("*"):
         if not path.is_file():
             continue
-        if any(part in ("__pycache__", ".git", ".pytest_cache", "node_modules", ".next", "dist", "venv", ".venv") for part in path.parts):
+        if any(part in IGNORED_DIR_NAMES for part in path.parts):
             continue
         relative = path.relative_to(cwd).as_posix()
         repo_files.append(relative)

@@ -864,14 +864,14 @@ def git_diff_cmd(
             ["git", "diff", "--name-only", f"{base}...HEAD"],
             capture_output=True,
             text=True,
+            check=True,
         )
-    except FileNotFoundError:
-        console.print("[red]Error: git is not installed or not in PATH[/red]")
-        raise typer.Exit(1)
-
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        console.print(f"[red]Error: {stderr}[/red]")
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        if isinstance(e, FileNotFoundError):
+            console.print("[red]Error: git is not installed or not in PATH[/red]")
+        else:
+            stderr = e.stderr.strip() if e.stderr else str(e)
+            console.print(f"[red]Error: {stderr}[/red]")
         raise typer.Exit(1)
 
     changed_files = [f for f in result.stdout.strip().splitlines() if f.strip()]

@@ -164,14 +164,12 @@ def narrow_scope(parent: Scope, child_files: list[str]) -> Scope:
 
 
 def detect_write_conflicts(scopes: list[Scope]) -> list[str]:
-    conflicts: list[str] = []
+    conflicts: set[str] = set()
     for i, a in enumerate(scopes):
         for b in scopes[i + 1:]:
             for pattern_a in a.working_set:
                 for pattern_b in b.working_set:
                     if pattern_matches(pattern_a, pattern_b) or pattern_matches(pattern_b, pattern_a):
-                        if pattern_a not in conflicts:
-                            conflicts.append(pattern_a)
-                        if pattern_b != pattern_a and pattern_b not in conflicts:
-                            conflicts.append(pattern_b)
-    return conflicts
+                        conflicts.add(pattern_a)
+                        conflicts.add(pattern_b)
+    return list(conflicts)

@@ -28,20 +28,28 @@ _PY_EXTENSIONS = {".py", ".pyi"}
 _TS_EXTENSIONS = {".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs"}
 
 
-def extract_signatures(file_path: str) -> list[str]:
+def extract_signatures(file_path: str, max_file_bytes: int = 20000) -> list[str]:
+    """Extract signatures from a bounded UTF-8 source file (legacy API)."""
     path = Path(file_path)
-    suffix = path.suffix.lower()
-
     try:
-        source = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        limit = max(0, int(max_file_bytes))
+        with path.open("rb") as source_file:
+            payload = source_file.read(limit + 1)
+        if len(payload) > limit:
+            return []
+        source = payload.decode("utf-8")
+    except (OSError, UnicodeDecodeError, TypeError, ValueError):
         return []
+    return extract_signatures_from_source(source, path.suffix)
 
+
+def extract_signatures_from_source(source: str, suffix: str) -> list[str]:
+    """Extract signatures from already-read source without reopening its path."""
+    suffix = suffix.lower()
     if suffix in _PY_EXTENSIONS:
         return _extract_python(source)
-    elif suffix in _TS_EXTENSIONS:
+    if suffix in _TS_EXTENSIONS:
         return _extract_ts(source)
-
     return []
 
 
@@ -49,7 +57,6 @@ def _extract_python(source: str) -> list[str]:
     sigs: list[str] = []
 
     for m in _PY_CLASS.finditer(source):
-        indent = m.group(1)
         name = m.group(2)
         bases = m.group(3)
         if bases:

@@ -1,6 +1,11 @@
 from pathlib import Path
+from xml.etree import ElementTree
+
+import pytest
 
 import yaml
+
+import consurg.render as render
 
 from consurg.file_context_ui import initial_tiers, save_scope_tiers
 from consurg.render import (
@@ -8,6 +13,7 @@ from consurg.render import (
     compose_from_scope,
     compose_from_tiers,
     estimate_tokens,
+    safe_read_context_file,
 )
 from consurg.scope import Scope
 
@@ -74,12 +80,43 @@ def test_compose_from_tiers_respects_limits_and_denylist(tmp_path):
 
 def test_compose_from_tiers_xml_format(tmp_path):
     cwd = _project(tmp_path)
+    ampersand_file = cwd / "src" / "terms&conditions.py"
+    ampersand_file.write_text("VALUE = 'quoted'\n", encoding="utf-8")
     result = compose_from_tiers(
-        {"src/auth.py": 3, "src/types.py": 2}, cwd, fmt="xml", task="review this"
+        {"src/auth.py": 3, "src/types.py": 2, "src/terms&conditions.py": 1},
+        cwd,
+        fmt="xml",
+        task="review <this>",
+        scope_name='scope "quoted"',
     )
+    root = ElementTree.fromstring(result.text)
+    assert root.tag == "context"
+    assert root.attrib["name"] == 'scope "quoted"'
+    assert root.findtext("task") == "review <this>"
+    assert root.find('.//file[@path="src/terms&conditions.py"]') is not None
     assert '<file path="src/auth.py" access="read-only">' in result.text
     assert '<signatures path="src/types.py"' in result.text
-    assert "<task>review this</task>" in result.text
+
+
+def test_compose_rejects_paths_and_symlinks_outside_root(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    cwd = _project(project)
+    outside = tmp_path / "outside.py"
+    outside.write_text("DO_NOT_LEAK = True\n", encoding="utf-8")
+
+    traversal = compose_from_tiers({"../outside.py": 3}, cwd)
+    assert "DO_NOT_LEAK" not in traversal.text
+    assert ("../outside.py", "outside project root") in traversal.skipped
+
+    link = cwd / "src" / "outside-link.py"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks are unavailable on this platform")
+    linked = compose_from_tiers({"src/outside-link.py": 3}, cwd)
+    assert "DO_NOT_LEAK" not in linked.text
+    assert ("src/outside-link.py", "outside project root") in linked.skipped
 
 
 def test_compose_from_scope_resolves_tiers(tmp_path):
@@ -149,3 +186,89 @@ def test_save_scope_tiers_preserves_other_keys(tmp_path):
     assert data["reason"] == "why not"
     assert data["visible"] == ["src/**"]
     assert data["file_context_ui"] == {"max_file_bytes": 12345}
+
+
+def test_signature_tier_respects_max_file_bytes(tmp_path):
+    cwd = _project(tmp_path)
+    source = cwd / "src" / "large.py"
+    source.write_text("def hidden():\n    pass\n" + "# x\n" * 100, encoding="utf-8")
+
+    result = compose_from_tiers(
+        {"src/large.py": 2}, cwd, limits=RenderLimits(max_file_bytes=20)
+    )
+
+    assert ("src/large.py", "exceeds max_file_bytes") in result.skipped
+    assert "def hidden" not in result.text
+
+
+def test_safe_reader_rejects_nul_beyond_initial_chunk(tmp_path):
+    cwd = _project(tmp_path)
+    target = cwd / "src" / "late-nul.txt"
+    target.write_bytes(b"x" * 9000 + b"\x00after")
+
+    content, reason = safe_read_context_file(target, cwd, 10000)
+
+    assert content is None
+    assert reason == "binary file"
+
+
+def test_xml_render_sanitizes_forbidden_control_characters(tmp_path):
+    cwd = _project(tmp_path)
+    (cwd / "src" / "control.py").write_text("value = '\\x01'\n", encoding="utf-8")
+
+    result = compose_from_tiers(
+        {"src/control.py": 3},
+        cwd,
+        fmt="xml",
+        scope_name="scope\x01name",
+        reason="reason\x0btext",
+        task="task\x02text",
+    )
+
+    root = ElementTree.fromstring(result.text)
+    assert root.attrib["name"] == "scopename"
+    assert root.findtext("reason") == "reasontext"
+    assert root.findtext("task") == "tasktext"
+    assert "\x01" not in result.text
+
+
+def test_safe_reader_rejects_symlink_component_inside_project(tmp_path):
+    cwd = _project(tmp_path)
+    target = cwd / "src" / "auth.py"
+    link = cwd / "src" / "inside-link.py"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlinks are unavailable on this platform")
+
+    content, reason = safe_read_context_file(link, cwd, 20000)
+
+    assert content is None
+    assert reason == "symlink or reparse point"
+
+
+def test_safe_reader_omits_file_when_path_changes_after_open(tmp_path, monkeypatch):
+    cwd = _project(tmp_path)
+    target = cwd / "src" / "swap.py"
+    replacement = cwd / "src" / "replacement.py"
+    target.write_text("SECRET = 'original'\n", encoding="utf-8")
+    replacement.write_text("SECRET = 'replacement'\n", encoding="utf-8")
+    original_snapshot = render._path_component_identities
+    calls = 0
+
+    def swap_before_second_snapshot(root, relative):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            try:
+                target.unlink()
+                replacement.replace(target)
+            except OSError:
+                pytest.skip("open-file replacement is unavailable on this platform")
+        return original_snapshot(root, relative)
+
+    monkeypatch.setattr(render, "_path_component_identities", swap_before_second_snapshot)
+    content, reason = safe_read_context_file(target, cwd, 20000)
+
+    assert content is None
+    assert reason == "path changed during read"

@@ -21,3 +21,6 @@ consurg = "consurg.cli:app"
 
 [tool.setuptools.packages.find]
 include = ["consurg*"]
+
+[tool.setuptools.package-data]
+consurg = ["*.html"]

@@ -1,0 +1,1107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Choose local project files and compose paste-ready context for ChatGPT." />
+    <meta name="theme-color" content="#f4f2ec" />
+    <meta name="consurg-token" content="__CONSURG_ACCESS_TOKEN__" />
+    <title>Consurg — Context picker for ChatGPT</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --surface-canvas: #f4f2ec;
+        --surface-primary: #fffdfa;
+        --surface-secondary: #f8f6f0;
+        --surface-selected: #e5f2ed;
+        --text-primary: #17211e;
+        --text-secondary: #5f6c67;
+        --text-tertiary: #87918d;
+        --border-default: #d8d6ce;
+        --border-subtle: #e9e6de;
+        --accent-primary: #176b57;
+        --accent-hover: #0f5847;
+        --accent-soft: #d7ebe4;
+        --tier-rw: #176b57;
+        --tier-ro: #315d88;
+        --tier-sig: #87651c;
+        --status-error: #a33c3c;
+        --status-warning: #87651c;
+        --status-success: #176b57;
+        --space-1: 4px;
+        --space-2: 8px;
+        --space-3: 12px;
+        --space-4: 16px;
+        --space-5: 20px;
+        --space-6: 24px;
+        --space-8: 32px;
+        --radius-sm: 6px;
+        --radius-md: 10px;
+        --radius-lg: 14px;
+        --font-sans: "Aptos", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+        --font-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+      }
+
+      * { box-sizing: border-box; }
+
+      html { min-width: 320px; background: var(--surface-canvas); }
+
+      body {
+        min-width: 320px;
+        min-height: 100dvh;
+        margin: 0;
+        background: var(--surface-canvas);
+        color: var(--text-primary);
+        font-family: var(--font-sans);
+        font-size: 15px;
+        line-height: 1.5;
+      }
+
+      button, input, select, textarea { font: inherit; }
+      button { color: inherit; }
+      svg { display: block; flex: 0 0 auto; }
+      [hidden] { display: none !important; }
+
+      .skip-link {
+        position: fixed;
+        top: var(--space-2);
+        left: var(--space-2);
+        z-index: 2;
+        padding: var(--space-2) var(--space-3);
+        border-radius: var(--radius-sm);
+        background: var(--text-primary);
+        color: var(--surface-primary);
+        transform: translateY(-160%);
+      }
+      .skip-link:focus { transform: translateY(0); }
+
+      .app-shell {
+        width: min(100% - 48px, 1440px);
+        margin: 0 auto;
+        padding: var(--space-6) 0 var(--space-8);
+      }
+
+      .app-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-4);
+        margin-bottom: var(--space-4);
+      }
+
+      .brand { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+      .brand-mark {
+        display: grid;
+        width: 40px;
+        height: 40px;
+        place-items: center;
+        border: 1px solid var(--border-default);
+        border-radius: var(--radius-md);
+        background: var(--surface-primary);
+        color: var(--accent-primary);
+      }
+      .brand-copy { min-width: 0; }
+      h1 { margin: 0; font-size: 24px; font-weight: 680; line-height: 1.2; letter-spacing: -0.02em; }
+      .subtitle { margin: var(--space-1) 0 0; color: var(--text-secondary); font-size: 13px; }
+      .header-actions { display: flex; align-items: center; gap: var(--space-2); }
+      .local-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(360px, 0.95fr) minmax(420px, 1.05fr);
+        min-height: 690px;
+        overflow: hidden;
+        border: 1px solid var(--border-default);
+        border-radius: var(--radius-lg);
+        background: var(--surface-primary);
+      }
+
+      .pane { min-width: 0; }
+      .tree-pane { border-right: 1px solid var(--border-default); }
+      .pane-header {
+        min-height: 76px;
+        padding: var(--space-4);
+        border-bottom: 1px solid var(--border-default);
+        background: var(--surface-secondary);
+      }
+      .pane-heading-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3);
+      }
+      h2 { margin: 0; font-size: 16px; font-weight: 650; line-height: 1.4; letter-spacing: -0.01em; }
+      .pane-description { margin: var(--space-1) 0 0; color: var(--text-secondary); font-size: 13px; }
+
+      .button {
+        display: inline-flex;
+        min-height: 36px;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-2);
+        padding: var(--space-2) var(--space-3);
+        border: 1px solid var(--border-default);
+        border-radius: var(--radius-sm);
+        background: var(--surface-primary);
+        color: var(--text-primary);
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 620;
+        line-height: 1.2;
+        transition: transform 140ms ease-out, background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out, opacity 140ms ease-out;
+      }
+      .button:hover:not(:disabled) { border-color: var(--text-tertiary); background: var(--surface-secondary); }
+      .button:active:not(:disabled) { transform: translateY(1px); }
+      .button:focus-visible,
+      .icon-button:focus-visible,
+      .tier-button:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid var(--accent-primary);
+        outline-offset: 2px;
+      }
+      .button:disabled { cursor: not-allowed; opacity: 0.48; }
+      .button.primary { border-color: var(--accent-primary); background: var(--accent-primary); color: var(--surface-primary); }
+      .button.primary:hover:not(:disabled) { border-color: var(--accent-hover); background: var(--accent-hover); }
+      .button.quiet { min-height: 32px; padding: var(--space-1) var(--space-2); background: transparent; }
+      .button.is-busy svg { animation: spin 800ms linear infinite; }
+
+      .tree-tools { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-subtle); }
+      .search-wrap { position: relative; }
+      .search-icon { position: absolute; top: 50%; left: var(--space-3); color: var(--text-tertiary); transform: translateY(-50%); pointer-events: none; }
+      .search-input,
+      .text-input,
+      .select-input,
+      .task-input,
+      .prompt-output {
+        width: 100%;
+        border: 1px solid var(--border-default);
+        border-radius: var(--radius-sm);
+        background: var(--surface-primary);
+        color: var(--text-primary);
+        transition: background-color 140ms ease-out, border-color 140ms ease-out;
+      }
+      .search-input { min-height: 40px; padding: var(--space-2) 40px var(--space-2) 36px; }
+      .search-input::placeholder,
+      .text-input::placeholder,
+      .task-input::placeholder { color: var(--text-tertiary); }
+      .clear-search { position: absolute; top: 50%; right: var(--space-2); transform: translateY(-50%); }
+      .clear-search:active { transform: translateY(calc(-50% + 1px)); }
+
+      .bulk-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-2);
+        margin-top: var(--space-2);
+      }
+      .bulk-label { overflow: hidden; color: var(--text-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+      .bulk-actions { display: flex; flex: 0 0 auto; gap: var(--space-1); }
+
+      .tree-scroll { height: 522px; overflow: auto; padding: var(--space-2); scrollbar-color: var(--border-default) transparent; }
+      .tree-list, .tree-group { margin: 0; padding: 0; list-style: none; }
+      .tree-group { padding-left: var(--space-5); }
+      .tree-item { min-width: max-content; }
+      .tree-row {
+        display: grid;
+        grid-template-columns: 24px 20px 18px minmax(150px, 1fr) auto auto;
+        align-items: center;
+        min-height: 36px;
+        gap: var(--space-1);
+        padding: var(--space-1) var(--space-2);
+        border-bottom: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm);
+      }
+      .tree-row:hover { background: var(--surface-secondary); }
+      .tree-row.is-selected { background: var(--surface-selected); }
+      .tree-row.is-denied { color: var(--text-tertiary); }
+      .tree-row:focus-within { position: relative; }
+      .tree-name {
+        overflow: hidden;
+        min-width: 0;
+        font-family: var(--font-mono);
+        font-size: 13px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .folder-row .tree-name { font-family: var(--font-sans); font-weight: 620; }
+      .tree-icon { color: var(--text-secondary); }
+      .token-count { min-width: 64px; color: var(--text-secondary); font-family: var(--font-mono); font-size: 12px; text-align: right; }
+      .policy-label { color: var(--status-error); font-size: 12px; font-weight: 600; }
+
+      .icon-button {
+        display: inline-grid;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        place-items: center;
+        border: 0;
+        border-radius: var(--radius-sm);
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: transform 140ms ease-out, background-color 140ms ease-out, color 140ms ease-out;
+      }
+      .icon-button:hover { background: var(--accent-soft); color: var(--text-primary); }
+      .disclosure svg { transition: transform 140ms ease-out; }
+      .disclosure[aria-expanded="true"] svg { transform: rotate(90deg); }
+      .disclosure-placeholder { width: 28px; height: 28px; }
+
+      .selection-box {
+        width: 16px;
+        height: 16px;
+        margin: 0;
+        accent-color: var(--accent-primary);
+        cursor: pointer;
+      }
+      .selection-box:disabled { cursor: not-allowed; }
+
+      .tier-control {
+        display: inline-flex;
+        gap: 2px;
+        padding: 2px;
+        border: 1px solid var(--border-default);
+        border-radius: var(--radius-sm);
+        background: var(--surface-primary);
+      }
+      .tier-button {
+        min-width: 30px;
+        min-height: 24px;
+        padding: 2px var(--space-1);
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1;
+        transition: transform 140ms ease-out, background-color 140ms ease-out, color 140ms ease-out, opacity 140ms ease-out;
+      }
+      .tier-button:hover:not(:disabled) { background: var(--surface-secondary); color: var(--text-primary); }
+      .tier-button:active:not(:disabled) { transform: translateY(1px); }
+      .tier-button:disabled { cursor: not-allowed; opacity: 0.4; }
+      .tier-button[aria-pressed="true"][data-tier="4"] { background: var(--tier-rw); color: var(--surface-primary); }
+      .tier-button[aria-pressed="true"][data-tier="3"] { background: var(--tier-ro); color: var(--surface-primary); }
+      .tier-button[aria-pressed="true"][data-tier="2"] { background: var(--tier-sig); color: var(--surface-primary); }
+      .tier-button[aria-pressed="true"][data-tier="1"] { background: var(--accent-soft); color: var(--text-primary); }
+      .tier-button[aria-pressed="true"][data-tier="0"] { background: var(--text-secondary); color: var(--surface-primary); }
+
+      .tree-state {
+        display: grid;
+        min-height: 320px;
+        padding: var(--space-8);
+        place-items: center;
+        color: var(--text-secondary);
+        text-align: center;
+      }
+      .state-content { max-width: 320px; }
+      .state-content svg { margin: 0 auto var(--space-3); color: var(--text-tertiary); }
+      .state-title { margin: 0; color: var(--text-primary); font-weight: 650; }
+      .state-copy { margin: var(--space-1) 0 0; font-size: 13px; }
+      .skeleton { padding: var(--space-2); }
+      .skeleton-row {
+        height: 36px;
+        margin-bottom: var(--space-1);
+        border-radius: var(--radius-sm);
+        background: var(--surface-secondary);
+        animation: breathe 1.2s ease-in-out infinite alternate;
+      }
+      .skeleton-row:nth-child(2) { width: 84%; }
+      .skeleton-row:nth-child(3) { width: 92%; }
+      .skeleton-row:nth-child(4) { width: 74%; }
+
+      .preview-pane { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+      .context-meta { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-subtle); }
+      .field { min-width: 0; }
+      .field-label { display: block; margin-bottom: var(--space-1); color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+      .text-input, .select-input { min-height: 36px; padding: var(--space-2) var(--space-3); }
+      .task-field { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-subtle); }
+      .task-input { min-height: 72px; padding: var(--space-2) var(--space-3); resize: vertical; }
+      .preview-field { display: flex; min-height: 0; flex-direction: column; padding: var(--space-3) var(--space-4); }
+      .preview-label-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); }
+      .totals { color: var(--text-secondary); font-family: var(--font-mono); font-size: 12px; }
+      .prompt-output {
+        min-height: 320px;
+        flex: 1 1 auto;
+        padding: var(--space-3);
+        background: var(--surface-secondary);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        line-height: 1.5;
+        resize: vertical;
+        scrollbar-color: var(--border-default) transparent;
+      }
+      .prompt-output[aria-busy="true"] { opacity: 0.66; }
+
+      .preview-footer { padding: var(--space-3) var(--space-4) var(--space-4); border-top: 1px solid var(--border-default); background: var(--surface-secondary); }
+      .action-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+      .action-row .primary { margin-right: auto; }
+      .status {
+        min-height: 20px;
+        margin-top: var(--space-2);
+        color: var(--text-secondary);
+        font-size: 12px;
+      }
+      .status[data-tone="success"] { color: var(--status-success); }
+      .status[data-tone="warning"] { color: var(--status-warning); }
+      .status[data-tone="error"] { color: var(--status-error); }
+
+      .privacy-note {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin: var(--space-3) 0 0;
+        color: var(--text-secondary);
+        font-size: 12px;
+      }
+      .privacy-note svg { color: var(--accent-primary); }
+      .visually-hidden {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        padding: 0 !important;
+        margin: -1px !important;
+        overflow: hidden !important;
+        clip: rect(0, 0, 0, 0) !important;
+        white-space: nowrap !important;
+        border: 0 !important;
+      }
+
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes breathe { from { opacity: 0.48; } to { opacity: 1; } }
+
+      @media (max-width: 900px) {
+        .app-shell { width: min(100% - 32px, 760px); padding-top: var(--space-4); }
+        .workspace { grid-template-columns: 1fr; }
+        .tree-pane { border-right: 0; border-bottom: 1px solid var(--border-default); }
+        .tree-scroll { height: 430px; }
+        .preview-pane { min-height: 660px; }
+      }
+
+      @media (max-width: 560px) {
+        .app-shell { width: min(100% - 24px, 520px); }
+        .app-header { align-items: flex-start; }
+        .subtitle, .local-badge { display: none; }
+        .button-label-optional { display: none; }
+        .workspace { border-radius: var(--radius-md); }
+        .pane-header, .tree-tools, .context-meta, .task-field, .preview-field, .preview-footer { padding-right: var(--space-3); padding-left: var(--space-3); }
+        .context-meta { grid-template-columns: 1fr; }
+        .tree-scroll { height: 380px; }
+        .tree-row { grid-template-columns: 24px 20px 18px minmax(120px, 1fr) auto; }
+        .tree-row .token-count { display: none; }
+        .tier-control { grid-column: 4 / -1; justify-self: start; margin: var(--space-1) 0; }
+        .policy-label { grid-column: 5; }
+        .action-row .button { flex: 1 1 auto; }
+        .action-row .primary { flex-basis: 100%; margin-right: 0; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#context-preview">Skip to context preview</a>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 6.5h6l2 2H20v9.5H4z" />
+              <path d="m9 13 2 2 4-5" />
+            </svg>
+          </div>
+          <div class="brand-copy">
+            <h1>Consurg</h1>
+            <p class="subtitle">Choose exactly what ChatGPT gets to see.</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <span class="local-badge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3 4 6v5c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10V6z" /><path d="m9 12 2 2 4-4" /></svg>
+            LOCAL ONLY
+          </span>
+          <button class="button" id="chooseFolder" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5h7l2 2h9v10H3z" /><path d="M12 12v5M9.5 14.5h5" /></svg>
+            <span class="button-label-optional">Choose folder</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="workspace" id="main">
+        <section class="pane tree-pane" aria-labelledby="files-heading">
+          <header class="pane-header">
+            <div class="pane-heading-row">
+              <div>
+                <h2 id="files-heading">Local files</h2>
+                <p class="pane-description" id="rootDescription">Loading selected folder…</p>
+              </div>
+              <span class="local-badge" id="fileCount" aria-live="polite"></span>
+            </div>
+          </header>
+
+          <div class="tree-tools">
+            <label class="visually-hidden" for="search">Filter files by path</label>
+            <div class="search-wrap">
+              <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
+              <input class="search-input" id="search" type="search" placeholder="Filter by file or folder…" autocomplete="off" />
+              <button class="icon-button clear-search" id="clearSearch" type="button" aria-label="Clear file filter" hidden>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+              </button>
+            </div>
+            <div class="bulk-row">
+              <span class="bulk-label" id="bulkLabel">Select files to include as context</span>
+              <div class="bulk-actions">
+                <button class="button quiet" id="selectFiltered" type="button">Select shown</button>
+                <button class="button quiet" id="clearFiltered" type="button">Clear shown</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="tree-scroll" id="treeScroll">
+            <div class="skeleton" id="treeLoading" aria-label="Loading local files" aria-busy="true">
+              <div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div>
+            </div>
+            <ul class="tree-list" id="fileTree" aria-label="Local project files" hidden></ul>
+            <div class="tree-state" id="emptyState" hidden>
+              <div class="state-content">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5h7l2 2h9v10H3z" /><path d="M8 13h8" /></svg>
+                <p class="state-title" id="emptyTitle">No files found</p>
+                <p class="state-copy" id="emptyCopy">Choose a folder that contains readable project files.</p>
+              </div>
+            </div>
+            <div class="tree-state" id="treeError" role="alert" hidden>
+              <div class="state-content">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v6M12 17h.01" /></svg>
+                <p class="state-title">Could not read this folder</p>
+                <p class="state-copy" id="treeErrorCopy">Try choosing it again.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="pane preview-pane" id="context-preview" aria-labelledby="preview-heading">
+          <header class="pane-header">
+            <div class="pane-heading-row">
+              <div>
+                <h2 id="preview-heading">ChatGPT context</h2>
+                <p class="pane-description">Review the exact text before copying it.</p>
+              </div>
+              <span class="totals" id="totals">0 files · ~0 tokens</span>
+            </div>
+          </header>
+
+          <div class="context-meta">
+            <div class="field">
+              <label class="field-label" for="scopeName">Context name</label>
+              <input class="text-input" id="scopeName" type="text" placeholder="e.g. auth refactor" maxlength="120" />
+            </div>
+            <div class="field">
+              <label class="field-label" for="format">Format</label>
+              <select class="select-input" id="format">
+                <option value="markdown">Markdown</option>
+                <option value="xml">XML</option>
+                <option value="plain">Plain text</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="task-field">
+            <label class="field-label" for="task">Task for ChatGPT <span class="visually-hidden">(optional)</span></label>
+            <textarea class="task-input" id="task" placeholder="Optional: describe what you want ChatGPT to do with these files…"></textarea>
+          </div>
+
+          <div class="preview-field">
+            <div class="preview-label-row">
+              <label class="field-label" for="prompt">Generated context</label>
+              <span class="field-label" id="composeState">Ready</span>
+            </div>
+            <textarea class="prompt-output" id="prompt" readonly spellcheck="false" aria-describedby="privacyNote"></textarea>
+          </div>
+
+          <footer class="preview-footer">
+            <div class="action-row">
+              <button class="button primary" id="copyChatgpt" type="button">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
+                Copy + open ChatGPT
+              </button>
+              <button class="button" id="download" type="button">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" /></svg>
+                Download
+              </button>
+              <button class="button" id="save" type="button">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h12l2 2v16H5z" /><path d="M8 3v6h8V3M8 21v-7h8v7" /></svg>
+                Save scope
+              </button>
+            </div>
+            <div class="status" id="status" role="status" aria-live="polite"></div>
+            <p class="privacy-note" id="privacyNote">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg>
+              Files are read by this localhost app only. Nothing is sent until you paste it into ChatGPT.
+            </p>
+          </footer>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      'use strict';
+
+      const ICONS = {
+        chevron: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>',
+        folder: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5h7l2 2h9v10H3z" /></svg>',
+        file: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v5h4" /></svg>',
+        spinner: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.6" /></svg>'
+      };
+      const TIER_LABELS = { 4: 'RW', 3: 'RO', 2: 'SIG', 1: 'LIST', 0: 'OFF' };
+      const TIER_TITLES = {
+        4: 'Full content, read-write scope',
+        3: 'Full content, read-only scope',
+        2: 'Signatures only',
+        1: 'List the file path without content',
+        0: 'Exclude'
+      };
+      const ACCESS_TOKEN = document.querySelector('meta[name="consurg-token"]').content;
+      const elements = Object.fromEntries([
+        'chooseFolder', 'rootDescription', 'fileCount', 'search', 'clearSearch', 'bulkLabel',
+        'selectFiltered', 'clearFiltered', 'treeLoading', 'fileTree', 'emptyState', 'emptyTitle',
+        'emptyCopy', 'treeError', 'treeErrorCopy', 'scopeName', 'format', 'task', 'prompt',
+        'totals', 'composeState', 'copyChatgpt', 'download', 'save', 'status'
+      ].map((id) => [id, document.getElementById(id)]));
+
+      let files = [];
+      let tiers = {};
+      let previousTiers = {};
+      let rootName = '';
+      let expandedFolders = new Set();
+      let composeTimer = null;
+      let composeController = null;
+      let composeSequence = 0;
+      let latestCompose = Promise.resolve();
+
+      function normalizeTier(tier) {
+        return [4, 3, 2, 1].includes(Number(tier)) ? Number(tier) : 0;
+      }
+
+      async function fetchJson(url, options = {}) {
+        const requestOptions = {
+          ...options,
+          headers: { ...(options.headers || {}), 'X-Consurg-Token': ACCESS_TOKEN }
+        };
+        const response = await fetch(url, requestOptions);
+        let payload = {};
+        try { payload = await response.json(); } catch { /* handled below */ }
+        if (!response.ok) {
+          const error = new Error(payload.error || `Request failed (${response.status})`);
+          error.status = response.status;
+          error.payload = payload;
+          throw error;
+        }
+        return payload;
+      }
+
+      function invalidateCompose() {
+        clearTimeout(composeTimer);
+        composeTimer = null;
+        composeSequence += 1;
+        if (composeController) composeController.abort();
+        composeController = null;
+        latestCompose = Promise.resolve(false);
+        elements.prompt.removeAttribute('aria-busy');
+      }
+
+      function applyFilesPayload(payload) {
+        invalidateCompose();
+        elements.prompt.value = '';
+        elements.composeState.textContent = 'Updating…';
+        files = Array.isArray(payload.files) ? payload.files : [];
+        tiers = {};
+        previousTiers = {};
+        files.forEach((file) => {
+          const tier = normalizeTier(file.tier);
+          tiers[file.path] = tier;
+          if (tier > 0) previousTiers[file.path] = tier;
+        });
+        rootName = payload.root_name || 'selected folder';
+        elements.scopeName.value = payload.scope_name || '';
+        expandedFolders = new Set();
+        const firstSegments = new Set(
+          files.filter((file) => file.path.includes('/')).map((file) => file.path.split('/')[0])
+        );
+        if (firstSegments.size <= 8) firstSegments.forEach((part) => expandedFolders.add(part));
+        elements.rootDescription.textContent = rootName;
+        elements.fileCount.textContent = `${files.length.toLocaleString()} ${files.length === 1 ? 'file' : 'files'}`;
+        elements.treeLoading.hidden = true;
+        elements.treeError.hidden = true;
+        renderTree();
+        updateTotals();
+        scheduleCompose();
+      }
+
+      async function loadFiles() {
+        showTreeLoading();
+        try {
+          applyFilesPayload(await fetchJson('/api/files'));
+        } catch (error) {
+          showTreeError(error.message);
+          setStatus(error.message, 'error');
+        }
+      }
+
+      function showTreeLoading() {
+        elements.treeLoading.hidden = false;
+        elements.fileTree.hidden = true;
+        elements.emptyState.hidden = true;
+        elements.treeError.hidden = true;
+      }
+
+      function showTreeError(message) {
+        elements.treeLoading.hidden = true;
+        elements.fileTree.hidden = true;
+        elements.emptyState.hidden = true;
+        elements.treeError.hidden = false;
+        elements.treeErrorCopy.textContent = message || 'Try choosing the folder again.';
+      }
+
+      function filteredFiles() {
+        const query = elements.search.value.trim().toLocaleLowerCase();
+        if (!query) return files;
+        return files.filter((file) => file.path.toLocaleLowerCase().includes(query));
+      }
+
+      function createTree(items) {
+        const root = { name: '', path: '', directories: new Map(), files: [], descendants: [] };
+        items.forEach((file) => {
+          const parts = file.path.split('/');
+          let node = root;
+          node.descendants.push(file);
+          parts.slice(0, -1).forEach((part) => {
+            if (!node.directories.has(part)) {
+              const path = node.path ? `${node.path}/${part}` : part;
+              node.directories.set(part, { name: part, path, directories: new Map(), files: [], descendants: [] });
+            }
+            node = node.directories.get(part);
+            node.descendants.push(file);
+          });
+          node.files.push(file);
+        });
+        return root;
+      }
+
+      function focusedTreeControl() {
+        const active = document.activeElement;
+        return active instanceof HTMLElement && elements.fileTree.contains(active) ? active.dataset.focusKey || null : null;
+      }
+
+      function restoreTreeFocus(focusKey) {
+        if (!focusKey) return;
+        const control = elements.fileTree.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`);
+        if (control instanceof HTMLElement) control.focus({ preventScroll: true });
+      }
+
+      function renderTree(focusKey = focusedTreeControl()) {
+        const shown = filteredFiles();
+        const query = elements.search.value.trim();
+        elements.clearSearch.hidden = !query;
+        elements.bulkLabel.textContent = query ? `${shown.length.toLocaleString()} matching files` : 'Select files to include as context';
+        elements.fileTree.replaceChildren();
+
+        if (!shown.length) {
+          elements.fileTree.hidden = true;
+          elements.emptyState.hidden = false;
+          elements.emptyTitle.textContent = files.length ? 'No matching files' : 'No files found';
+          elements.emptyCopy.textContent = files.length ? 'Try a different file or folder name.' : 'Choose a folder that contains readable project files.';
+          updateTotals();
+          return;
+        }
+
+        elements.emptyState.hidden = true;
+        elements.fileTree.hidden = false;
+        const tree = createTree(shown);
+        appendTreeChildren(elements.fileTree, tree, Boolean(query));
+        updateTotals();
+        restoreTreeFocus(focusKey);
+      }
+
+      function appendTreeChildren(container, node, forceOpen) {
+        [...node.directories.values()]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .forEach((directory) => container.appendChild(createDirectoryItem(directory, forceOpen)));
+        node.files
+          .sort((a, b) => a.path.localeCompare(b.path))
+          .forEach((file) => container.appendChild(createFileItem(file)));
+      }
+
+      function selectable(items) {
+        return items.filter((file) => !file.denied);
+      }
+
+      function selectionState(items) {
+        const allowed = selectable(items);
+        const selected = allowed.filter((file) => tiers[file.path] >= 1).length;
+        return { allowed, selected, checked: allowed.length > 0 && selected === allowed.length, mixed: selected > 0 && selected < allowed.length };
+      }
+
+      function createDirectoryItem(directory, forceOpen) {
+        const item = document.createElement('li');
+        item.className = 'tree-item';
+        const isOpen = forceOpen || expandedFolders.has(directory.path);
+
+        const row = document.createElement('div');
+        row.className = 'tree-row folder-row';
+
+        const disclosure = document.createElement('button');
+        disclosure.type = 'button';
+        disclosure.className = 'icon-button disclosure';
+        disclosure.dataset.focusKey = `directory:${directory.path}:disclosure`;
+        disclosure.setAttribute('aria-label', `${isOpen ? 'Collapse' : 'Expand'} ${directory.name}`);
+        disclosure.setAttribute('aria-expanded', String(isOpen));
+        disclosure.innerHTML = ICONS.chevron;
+
+        const state = selectionState(directory.descendants);
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'selection-box';
+        checkbox.dataset.focusKey = `directory:${directory.path}:checkbox`;
+        checkbox.checked = state.checked;
+        checkbox.indeterminate = state.mixed;
+        checkbox.disabled = state.allowed.length === 0;
+        checkbox.setAttribute('aria-label', `${state.checked ? 'Exclude' : 'Include'} all files in ${directory.path}`);
+
+        const icon = document.createElement('span');
+        icon.className = 'tree-icon';
+        icon.innerHTML = ICONS.folder;
+
+        const name = document.createElement('span');
+        name.className = 'tree-name';
+        name.textContent = directory.name;
+        name.title = directory.path;
+
+        const count = document.createElement('span');
+        count.className = 'token-count';
+        count.textContent = `${directory.descendants.length} ${directory.descendants.length === 1 ? 'file' : 'files'}`;
+
+        row.append(disclosure, checkbox, icon, name, count);
+        const group = document.createElement('ul');
+        group.className = 'tree-group';
+        group.hidden = !isOpen;
+        appendTreeChildren(group, directory, forceOpen);
+
+        disclosure.addEventListener('click', () => {
+          const opening = group.hidden;
+          group.hidden = !opening;
+          disclosure.setAttribute('aria-expanded', String(opening));
+          disclosure.setAttribute('aria-label', `${opening ? 'Collapse' : 'Expand'} ${directory.name}`);
+          if (opening) expandedFolders.add(directory.path);
+          else expandedFolders.delete(directory.path);
+        });
+        checkbox.addEventListener('change', () => setFilesTier(state.allowed, checkbox.checked ? 3 : 0));
+
+        item.append(row, group);
+        return item;
+      }
+
+      function createFileItem(file) {
+        const item = document.createElement('li');
+        item.className = 'tree-item';
+
+        const row = document.createElement('div');
+        const selected = tiers[file.path] >= 1;
+        row.className = `tree-row${selected ? ' is-selected' : ''}${file.denied ? ' is-denied' : ''}`;
+
+        const placeholder = document.createElement('span');
+        placeholder.className = 'disclosure-placeholder';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'selection-box';
+        checkbox.dataset.focusKey = `file:${file.path}:checkbox`;
+        checkbox.checked = selected;
+        checkbox.disabled = file.denied;
+        checkbox.setAttribute('aria-label', `${selected ? 'Exclude' : 'Include'} ${file.path}`);
+
+        const icon = document.createElement('span');
+        icon.className = 'tree-icon';
+        icon.innerHTML = ICONS.file;
+
+        const name = document.createElement('span');
+        name.className = 'tree-name';
+        name.textContent = file.path.split('/').pop();
+        name.title = file.path;
+
+        const tokens = document.createElement('span');
+        tokens.className = 'token-count';
+        tokens.textContent = `~${Number(file.tokens || 0).toLocaleString()} tok`;
+
+        if (file.denied) {
+          const policy = document.createElement('span');
+          policy.className = 'policy-label';
+          policy.textContent = 'policy';
+          policy.title = 'Excluded by the local never_include policy';
+          row.append(placeholder, checkbox, icon, name, policy, tokens);
+        } else {
+          row.append(placeholder, checkbox, icon, name, createTierControl(file), tokens);
+        }
+
+        checkbox.addEventListener('change', () => {
+          const restored = normalizeTier(previousTiers[file.path]) || 3;
+          setFilesTier([file], checkbox.checked ? restored : 0);
+        });
+        item.appendChild(row);
+        return item;
+      }
+
+      function createTierControl(file) {
+        const control = document.createElement('div');
+        control.className = 'tier-control';
+        control.setAttribute('role', 'group');
+        control.setAttribute('aria-label', `Context level for ${file.path}`);
+        [4, 3, 2, 1, 0].forEach((tier) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'tier-button';
+          button.dataset.tier = String(tier);
+          button.dataset.focusKey = `file:${file.path}:tier:${tier}`;
+          button.textContent = TIER_LABELS[tier];
+          button.title = TIER_TITLES[tier];
+          button.setAttribute('aria-pressed', String(tiers[file.path] === tier));
+          button.addEventListener('click', () => setFilesTier([file], tier));
+          control.appendChild(button);
+        });
+        return control;
+      }
+
+      function setFilesTier(targets, tier) {
+        const focusKey = focusedTreeControl();
+        targets.forEach((file) => {
+          if (file.denied && tier !== 0) return;
+          tiers[file.path] = tier;
+          if (tier >= 1) previousTiers[file.path] = tier;
+        });
+        renderTree(focusKey);
+        scheduleCompose();
+      }
+
+      function selectedTiers() {
+        return Object.fromEntries(Object.entries(tiers).filter(([, tier]) => tier >= 1));
+      }
+
+      function updateTotals(serverTokens) {
+        const selected = selectedTiers();
+        const count = Object.keys(selected).length;
+        let estimate = 0;
+        files.forEach((file) => {
+          const tier = selected[file.path];
+          if (tier === 4 || tier === 3) estimate += Number(file.tokens || 0);
+          else if (tier === 2) estimate += Math.min(Number(file.tokens || 0), 150);
+        });
+        const tokens = serverTokens == null ? estimate : serverTokens;
+        elements.totals.textContent = `${count.toLocaleString()} ${count === 1 ? 'file' : 'files'} · ~${Number(tokens || 0).toLocaleString()} tokens`;
+      }
+
+      function scheduleCompose() {
+        invalidateCompose();
+        clearTimeout(composeTimer);
+        elements.composeState.textContent = 'Updating…';
+        composeTimer = setTimeout(() => { latestCompose = refreshPrompt(); }, 220);
+      }
+
+      async function refreshPrompt() {
+        const sequence = ++composeSequence;
+        if (composeController) composeController.abort();
+        composeController = new AbortController();
+        elements.prompt.setAttribute('aria-busy', 'true');
+        elements.composeState.textContent = 'Updating…';
+        try {
+          const payload = await fetchJson('/api/compose', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tiers: selectedTiers(),
+              format: elements.format.value,
+              task: elements.task.value,
+              scope_name: elements.scopeName.value
+            }),
+            signal: composeController.signal
+          });
+          if (sequence !== composeSequence) return false;
+          elements.prompt.value = payload.prompt || '';
+          updateTotals(payload.tokens);
+          elements.composeState.textContent = 'Ready';
+          if (payload.skipped && payload.skipped.length) {
+            const details = payload.skipped.map((item) => `${item.path} (${item.reason})`).join(', ');
+            setStatus(`Omitted: ${details}`, 'warning', 'compose');
+          } else if (elements.status.dataset.source === 'compose') {
+            setStatus('');
+          }
+          return true;
+        } catch (error) {
+          if (error.name === 'AbortError') return false;
+          elements.composeState.textContent = 'Could not update';
+          setStatus(error.message, 'error', 'compose');
+          return false;
+        } finally {
+          if (sequence === composeSequence) elements.prompt.setAttribute('aria-busy', 'false');
+        }
+      }
+
+      async function ensureComposed() {
+        clearTimeout(composeTimer);
+        latestCompose = refreshPrompt();
+        const ready = await latestCompose;
+        if (!ready) throw new Error('Context changed while composing. Try again');
+      }
+
+      async function writeClipboard(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+        elements.prompt.focus();
+        elements.prompt.select();
+        if (!document.execCommand('copy')) throw new Error('Clipboard permission was denied');
+      }
+
+      async function copyAndOpenChatGpt() {
+        try { window.open('https://chatgpt.com/', '_blank', 'noopener,noreferrer'); } catch { /* clipboard still works */ }
+        elements.copyChatgpt.disabled = true;
+        try {
+          await ensureComposed();
+          await writeClipboard(elements.prompt.value);
+          setStatus('Copied. A ChatGPT tab was requested; if it did not open, open ChatGPT and paste into the composer.', 'success');
+        } catch (error) {
+          setStatus(`${error.message}. Select the preview and copy it manually.`, 'error');
+        } finally {
+          elements.copyChatgpt.disabled = false;
+        }
+      }
+
+      async function openFolder() {
+        const original = elements.chooseFolder.innerHTML;
+        elements.chooseFolder.disabled = true;
+        elements.chooseFolder.classList.add('is-busy');
+        elements.chooseFolder.innerHTML = `${ICONS.spinner}<span class="button-label-optional">Waiting for folder…</span>`;
+        setStatus('Choose a local folder in the system dialog.');
+        try {
+          const payload = await fetchJson('/api/open-folder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}'
+          });
+          if (payload.cancelled) {
+            setStatus('Folder selection cancelled.');
+            return;
+          }
+          elements.search.value = '';
+          applyFilesPayload(payload);
+          setStatus(`Opened ${payload.root_name || 'folder'}.`, 'success');
+        } catch (error) {
+          setStatus(error.message, 'error');
+        } finally {
+          elements.chooseFolder.disabled = false;
+          elements.chooseFolder.classList.remove('is-busy');
+          elements.chooseFolder.innerHTML = original;
+        }
+      }
+
+      async function downloadPrompt() {
+        elements.download.disabled = true;
+        try {
+          await ensureComposed();
+          const blob = new Blob([elements.prompt.value], { type: 'text/plain;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `${rootName || 'consurg'}-context.txt`;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+          setStatus('Context downloaded.', 'success');
+        } catch (error) {
+          setStatus(error.message, 'error');
+        } finally {
+          elements.download.disabled = false;
+        }
+      }
+
+      async function saveScope() {
+        elements.save.disabled = true;
+        const requestSave = (confirmWildcardExpansion = false) => fetchJson('/api/save-scope', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tiers: selectedTiers(),
+            scope_name: elements.scopeName.value,
+            ...(confirmWildcardExpansion ? { confirm_wildcard_expansion: true } : {})
+          })
+        });
+        try {
+          let payload;
+          try {
+            payload = await requestSave();
+          } catch (error) {
+            if (error.status !== 409 || !error.payload?.requires_wildcard_confirmation) throw error;
+            const confirmed = window.confirm('Saving will expand wildcard scope entries into explicit file paths. Continue?');
+            if (!confirmed) {
+              setStatus('Scope save cancelled; wildcard entries were not expanded.', 'warning');
+              return;
+            }
+            payload = await requestSave(true);
+          }
+          setStatus(`Scope saved to ${payload.saved || '.consurg.yaml'}.`, 'success');
+        } catch (error) {
+          setStatus(error.message, 'error');
+        } finally {
+          elements.save.disabled = false;
+        }
+      }
+
+      function setStatus(message, tone = 'neutral', source = '') {
+        elements.status.textContent = message;
+        elements.status.dataset.tone = tone;
+        elements.status.dataset.source = source;
+      }
+
+      elements.chooseFolder.addEventListener('click', openFolder);
+      elements.search.addEventListener('input', renderTree);
+      elements.search.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && elements.search.value) {
+          elements.search.value = '';
+          renderTree();
+        }
+      });
+      elements.clearSearch.addEventListener('click', () => {
+        elements.search.value = '';
+        elements.search.focus();
+        renderTree();
+      });
+      elements.selectFiltered.addEventListener('click', () => setFilesTier(selectable(filteredFiles()), 3));
+      elements.clearFiltered.addEventListener('click', () => setFilesTier(filteredFiles(), 0));
+      elements.format.addEventListener('change', scheduleCompose);
+      elements.task.addEventListener('input', scheduleCompose);
+      elements.scopeName.addEventListener('input', scheduleCompose);
+      elements.copyChatgpt.addEventListener('click', copyAndOpenChatGpt);
+      elements.download.addEventListener('click', downloadPrompt);
+      elements.save.addEventListener('click', saveScope);
+      document.addEventListener('keydown', (event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+          event.preventDefault();
+          copyAndOpenChatGpt();
+        }
+      });
+
+      loadFiles();
+    </script>
+  </body>
+</html>

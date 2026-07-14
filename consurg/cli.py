@@ -24,9 +24,8 @@ from consurg.audit import audit_storage_stats, load_audit_config, persist_trace,
 from consurg.pk_agents import scaffold_pk_agents
 from consurg.scope import Scope, load_scope
 from consurg.trace import DependencyGraph, resolve_python_imports, resolve_ts_imports
-from consurg.enforce import resolve_tier, resolve_tier_with_pattern
+from consurg.enforce import resolve_tier_with_pattern
 from consurg.file_context_ui import (
-    IGNORED_DIR_NAMES,
     compose_prompt,
     list_candidate_files,
     load_file_context_ui_config,
@@ -60,26 +59,7 @@ def _write_yaml(data: dict):
 
 
 def _repo_files() -> list[Path]:
-    cwd = Path.cwd()
-    try:
-        result = subprocess.run(
-            ["git", "ls-files"],
-            capture_output=True,
-            text=True,
-            cwd=str(cwd),
-        )
-        if result.returncode == 0:
-            return sorted(
-                Path(f) for f in result.stdout.strip().splitlines() if f.strip()
-            )
-    except FileNotFoundError:
-        pass
-
-    return sorted(
-        p.relative_to(cwd)
-        for p in cwd.rglob("*")
-        if p.is_file() and not any(part in IGNORED_DIR_NAMES for part in p.parts)
-    )
+    return [Path(path) for path in list_candidate_files(Path.cwd())]
 
 
 def _tier_label(tier: int) -> str:
@@ -511,7 +491,6 @@ def map_cmd(
         return
 
     tree = Tree(f"[bold]{scope.scope_name}[/bold]")
-    cwd = Path.cwd()
 
     tier_styles = {
         4: ("[RW]", "green", "block"),
@@ -823,7 +802,7 @@ def sandbox_profile(
         console.print("[dim]Setup commands:[/dim]")
         for cmd in profile.setup_commands:
             console.print(f"  {cmd}")
-        console.print(f"\n[dim]Teardown commands:[/dim]")
+        console.print("\n[dim]Teardown commands:[/dim]")
         for cmd in profile.teardown_commands:
             console.print(f"  {cmd}")
         console.print(f"\n[dim]Distro: {profile.wsl_distro}, Workspace: {profile.workspace_dir}[/dim]")

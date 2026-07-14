@@ -1,4 +1,5 @@
-import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -248,6 +249,39 @@ def test_map_depth_limit(in_tmp):
     result = runner.invoke(app, ["map", "--depth", "1"])
     assert "top.py" in result.output
     assert "deep.py" not in result.output
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
+def test_map_includes_untracked_and_hides_ignored_files(in_tmp):
+    subprocess.run(["git", "init", "-q"], cwd=in_tmp, check=True)
+    (in_tmp / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
+    (in_tmp / "tracked.py").write_text("tracked", encoding="utf-8")
+    (in_tmp / "untracked.py").write_text("untracked", encoding="utf-8")
+    (in_tmp / "ignored.py").write_text("ignored", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", ".gitignore", "tracked.py"], cwd=in_tmp, check=True
+    )
+    runner.invoke(app, ["init", "discovery-test"])
+
+    result = runner.invoke(app, ["map"])
+
+    assert result.exit_code == 0
+    assert "tracked.py" in result.output
+    assert "untracked.py" in result.output
+    assert "ignored.py" not in result.output
+
+
+def test_map_warns_for_large_file_sets(in_tmp, monkeypatch):
+    runner.invoke(app, ["init", "large-test"])
+    monkeypatch.setattr(
+        "consurg.cli._repo_files",
+        lambda: [Path(f"file-{index}.py") for index in range(5001)],
+    )
+
+    result = runner.invoke(app, ["map", "--scoped-only"])
+
+    assert result.exit_code == 0
+    assert "Warning: 5001 files found" in result.output
+
 
 
 # CS-010: drift detection

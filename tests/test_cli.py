@@ -505,6 +505,46 @@ def test_snap_higher_tier_wins_on_overlap(in_tmp):
     assert "## FILE: main.py" in result.output
     assert "## SIGNATURES: main.py" not in result.output
 
+
+def test_snap_oversized_file_omitted_with_hint(in_tmp):
+    (in_tmp / "big.py").write_text("x = 1\n" * 10000, encoding="utf-8")
+
+    result = runner.invoke(app, ["snap", "big.py"])
+    assert result.exit_code == 1
+    assert "exceeds max_file_bytes" in result.output
+    assert "--max-file-bytes" in result.output
+
+
+def test_snap_max_file_bytes_override_includes_large_file(in_tmp):
+    (in_tmp / "big.py").write_text("x = 1\n" * 10000, encoding="utf-8")
+
+    result = runner.invoke(app, ["snap", "big.py", "--max-file-bytes", "1000000"])
+    assert result.exit_code == 0
+    assert "## FILE: big.py" in result.output
+    assert "exceeds max_file_bytes" not in result.output
+
+
+def test_snap_size_omission_prints_override_hint(in_tmp):
+    (in_tmp / "small.py").write_text("x = 1", encoding="utf-8")
+    (in_tmp / "big.py").write_text("x = 1\n" * 10000, encoding="utf-8")
+
+    result = runner.invoke(app, ["snap", "small.py", "big.py"])
+    assert result.exit_code == 0
+    assert "## FILE: small.py" in result.output
+    assert "omitted: big.py" in result.output
+    assert "--max-file-bytes" in result.output
+
+
+def test_snap_max_total_bytes_override_limits_output(in_tmp):
+    for name in ("a.py", "b.py"):
+        (in_tmp / name).write_text("x = 1\n" * 200, encoding="utf-8")
+
+    result = runner.invoke(app, ["snap", "a.py", "b.py", "--max-total-bytes", "2000"])
+    assert result.exit_code == 0
+    assert "## FILE: a.py" in result.output
+    assert "total size limit reached" in result.output
+    assert "--max-total-bytes" in result.output
+
 # --- prompt command tests ---
 
 def test_prompt_no_scope(in_tmp):

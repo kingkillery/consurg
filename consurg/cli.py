@@ -236,22 +236,31 @@ def snap_cmd(
     name: str = typer.Option("snapshot", "--name", "-n", help="Context name shown in the header."),
     clip: bool = typer.Option(False, "--clip", "-c", help="Copy to clipboard instead of printing."),
     out: Path | None = typer.Option(None, "--out", "-o", help="Write the rendered context to a file."),
+    max_file_bytes: int | None = typer.Option(None, "--max-file-bytes", min=1, help="Per-file size limit override (bytes)."),
+    max_total_bytes: int | None = typer.Option(None, "--max-total-bytes", min=1, help="Total output size limit override (bytes)."),
 ):
     """Render an ad-hoc file selection into a paste-ready prompt.
 
     One-shot alternative to `copy`: does not read or modify .consurg.yaml.
     Positional FILES render as full content; use --read and --sig to add
-    lower-tier patterns. Respects file_context_ui limits and never_include.
+    lower-tier patterns. Respects file_context_ui limits and never_include;
+    override sizes per invocation with --max-file-bytes / --max-total-bytes.
     """
     if fmt not in RENDER_FORMATS:
         console.print(f"[red]Unknown format '{fmt}'. Choose from: {', '.join(RENDER_FORMATS)}[/red]")
         raise typer.Exit(1)
+
+    from dataclasses import replace
 
     from consurg.render import compose_from_tiers
     from consurg.scope import pattern_matches
 
     cwd = Path.cwd()
     config = load_file_context_ui_config(cwd)
+    if max_file_bytes is not None:
+        config = replace(config, max_file_bytes=max_file_bytes)
+    if max_total_bytes is not None:
+        config = replace(config, max_total_bytes=max_total_bytes)
     candidates = list_candidate_files(cwd, config)
 
     tiers: dict[str, int] = {}
@@ -274,8 +283,21 @@ def snap_cmd(
         raise typer.Exit(1)
 
     result = compose_from_tiers(tiers, cwd, limits=config, fmt=fmt, task=task, scope_name=name)
+
+    def _report_skipped():
+        size_limited = False
+        for path, why in result.skipped:
+            err_console.print(f"[yellow]omitted: {path} ({why})[/yellow]")
+            if "max_file_bytes" in why or "size limit" in why:
+                size_limited = True
+        if size_limited:
+            err_console.print(
+                "[dim]Hint: re-run with --max-file-bytes / --max-total-bytes to include larger files.[/dim]"
+            )
+
     if not result.included:
-        console.print("[yellow]All matched files were omitted — nothing to render.[/yellow]")
+        _report_skipped()
+        console.print("[red]All matched files were omitted — nothing to render.[/red]")
         raise typer.Exit(1)
 
     summary = f"{len(result.included)} files, ~{result.token_estimate:,} tokens"
@@ -299,9 +321,7 @@ def snap_cmd(
         sys.stdout.write(result.text)
         err_console.print(f"[dim]{summary}[/dim]")
 
-    if result.skipped:
-        for path, why in result.skipped:
-            err_console.print(f"[yellow]omitted: {path} ({why})[/yellow]")
+    _report_skipped()
 
 
 @app.command()

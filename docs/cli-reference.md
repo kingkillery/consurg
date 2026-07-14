@@ -181,8 +181,10 @@ Render an ad-hoc file selection into a paste-ready prompt in one shot. Unlike `c
 | `--name` / `-n` | Context name shown in the header (default `snapshot`) |
 | `--clip` / `-c` | Copy the result to the clipboard |
 | `--out` / `-o` | Write the result to a file (e.g. `context.md`) |
+| `--max-file-bytes N` | Per-file size limit override for this invocation |
+| `--max-total-bytes N` | Total output size limit override for this invocation |
 
-Higher tiers win when patterns overlap. `file_context_ui` limits and `never_include` rules are respected; excluded and oversized files are listed in the `## Omitted` section.
+Higher tiers win when patterns overlap. `file_context_ui` limits and `never_include` rules are respected; excluded and oversized files are listed in the `## Omitted` section, and a hint suggests the size-override flags when files were dropped for size. Overrides are still capped by the hard maximums (10 MB per file, 50 MB total).
 
 ```bash
 consurg snap "src/auth/*.py" --read "src/core/config.py" --sig "src/types.py" --clip

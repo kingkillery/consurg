@@ -28,12 +28,16 @@ from consurg.enforce import resolve_tier, resolve_tier_with_pattern
 from consurg.file_context_ui import (
     IGNORED_DIR_NAMES,
     compose_prompt,
+    list_candidate_files,
     load_file_context_ui_config,
     start_ui_server,
 )
+from consurg.render import FORMATS as RENDER_FORMATS
+from consurg.render import compose_from_scope
 
 app = typer.Typer(name="consurg", help="Context Surgeon - temporarily restrict AI coding agents to a declared subset of files.")
 console = Console()
+err_console = Console(stderr=True)
 
 SCOPE_FILE = ".consurg.yaml"
 
@@ -128,6 +132,86 @@ def file_context(
         console.print(output)
         return
     start_ui_server(Path.cwd(), config, selected_files)
+
+
+@app.command()
+def pick(
+    files: list[str] | None = typer.Argument(None, help="Optional file paths to preselect as read-write."),
+):
+    """Open the scope picker UI: set per-file tiers, copy a prompt, or save the scope.
+
+    One selection, two outputs: "Save scope" writes .consurg.yaml (enforced by
+    `consurg run` / `consurg guard`); "Copy prompt" renders the same selection
+    as a paste-ready context blob for ChatGPT/Claude.
+    """
+    config = load_file_context_ui_config(Path.cwd())
+    start_ui_server(Path.cwd(), config, files or [])
+
+
+def _copy_to_clipboard(text: str) -> bool:
+    """Best-effort cross-platform clipboard copy. Returns True on success."""
+    if sys.platform == "win32":
+        commands = [["clip"]]
+    elif sys.platform == "darwin":
+        commands = [["pbcopy"]]
+    else:
+        commands = [["wl-copy"], ["xclip", "-selection", "clipboard"]]
+    for cmd in commands:
+        try:
+            proc = subprocess.run(cmd, input=text.encode("utf-8"), timeout=10)
+            if proc.returncode == 0:
+                return True
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            continue
+    return False
+
+
+@app.command(name="copy")
+def copy_cmd(
+    fmt: str = typer.Option("markdown", "--format", "-f", help=f"Output format: {', '.join(RENDER_FORMATS)}"),
+    task: str = typer.Option("", "--task", "-t", help="Optional task/instructions to prepend."),
+    clip: bool = typer.Option(False, "--clip", "-c", help="Copy to clipboard instead of printing."),
+):
+    """Render the current scope's files into a paste-ready prompt.
+
+    T4/T3 files render as full content, T2 as extracted signatures,
+    T1 as tree entries only. Everything else is omitted.
+    """
+    if fmt not in RENDER_FORMATS:
+        console.print(f"[red]Unknown format '{fmt}'. Choose from: {', '.join(RENDER_FORMATS)}[/red]")
+        raise typer.Exit(1)
+
+    scope = load_scope(_scope_path())
+    if scope is None:
+        console.print("[red]No scope defined. Run consurg pick or consurg init[/red]")
+        raise typer.Exit(1)
+
+    cwd = Path.cwd()
+    config = load_file_context_ui_config(cwd)
+    candidates = list_candidate_files(cwd, config)
+    result = compose_from_scope(scope, cwd, candidates, limits=config, fmt=fmt, task=task)
+
+    if not result.included:
+        console.print("[yellow]Scope matched no files — nothing to render.[/yellow]")
+        raise typer.Exit(1)
+
+    if clip:
+        if _copy_to_clipboard(result.text):
+            console.print(
+                f"[green]Copied {len(result.included)} files (~{result.token_estimate:,} tokens) to clipboard.[/green]"
+            )
+        else:
+            console.print("[red]No clipboard tool available. Printing instead:[/red]")
+            sys.stdout.write(result.text)
+    else:
+        sys.stdout.write(result.text)
+        err_console.print(
+            f"[dim]{len(result.included)} files, ~{result.token_estimate:,} tokens[/dim]",
+        )
+
+    if result.skipped:
+        for path, why in result.skipped:
+            err_console.print(f"[yellow]omitted: {path} ({why})[/yellow]")
 
 
 @app.command()
@@ -360,6 +444,23 @@ def status(
         table.add_row(label, str(len(patterns)), ", ".join(patterns_display) if patterns_display else "-")
 
     console.print(table)
+
+    # Show wiring status so users never have to guess what's hooked up.
+    from consurg.wire import WIRERS
+
+    wired_rows = []
+    for tool_id, wirer_cls in WIRERS.items():
+        try:
+            wire_status = wirer_cls().status()
+        except Exception:
+            wire_status = "unknown"
+        if wire_status != "not wired":
+            wired_rows.append((tool_id, wire_status))
+    if wired_rows:
+        wired_display = ", ".join(f"{t} ({s})" for t, s in wired_rows)
+        console.print(f"Wired tools: [green]{wired_display}[/green]")
+    else:
+        console.print("Wired tools: [dim]none (use consurg run <tool> or consurg wire <tool>)[/dim]")
 
     # Show sandbox section for v2 scopes
     scope = load_scope(_scope_path())
@@ -1160,6 +1261,95 @@ def wrap(
     finally:
         server.stop()
         lockfile.remove()
+
+
+# ---------------------------------------------------------------------------
+# run command — one-shot: wire + headless guard + execute + cleanup
+# ---------------------------------------------------------------------------
+
+@app.command(
+    name="run",
+    context_settings={"allow_extra_args": True, "allow_interspersed_args": False},
+)
+def run_cmd(
+    ctx: typer.Context,
+    tool: str = typer.Argument(..., help="Tool to launch (claude, codex, gemini, droid, pk-agent, or any command)."),
+):
+    """Run a tool under the current scope in one shot.
+
+    Wires the tool's hooks if needed, starts a headless guard, launches the
+    tool, then unwires and cleans up on exit:
+
+        consurg run claude "fix the auth bug"
+    """
+    from consurg.guard.lockfile import GuardLockfile
+    from consurg.guard.server import GuardServer
+    from consurg.guard.state import GuardState
+    from consurg.wire import WIRERS
+
+    scope = load_scope(_scope_path())
+    if scope is None:
+        console.print("[red]No scope defined. Run consurg pick or consurg init[/red]")
+        raise typer.Exit(1)
+    if not scope.active:
+        console.print("[yellow]Scope is inactive. Activating for this run.[/yellow]")
+        scope.active = True
+
+    # Wire the tool if we know how, remembering whether we did it.
+    tool_key = Path(tool).name
+    wired_by_us = False
+    wirer = None
+    if tool_key in WIRERS:
+        wirer = WIRERS[tool_key]()
+        if wirer.status() != "wired":
+            result = wirer.wire()
+            if result.success:
+                wired_by_us = True
+                console.print(f"[dim]wired: {wirer.name}[/dim]")
+            else:
+                console.print(f"[yellow]Could not wire {tool_key}: {result.message}[/yellow]")
+                console.print("[yellow]Continuing — enforcement depends on the tool honoring the guard.[/yellow]")
+    else:
+        console.print(f"[dim]no wirer for '{tool_key}'; running with guard only[/dim]")
+
+    # Headless guard on a free port.
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+
+    state = GuardState(scope=scope, interactive=False, port=port)
+    lockfile = GuardLockfile()
+    lockfile.write(port=port, scope_name=scope.scope_name)
+    server = GuardServer(state)
+    server.start()
+    console.print(f"[dim]guard: headless on port {port} (scope: {scope.scope_name or 'unnamed'})[/dim]")
+
+    env = os.environ.copy()
+    env["CONSURG_GUARD_PORT"] = str(port)
+    env["CONSURG_ACTIVE"] = "1"
+
+    returncode = 1
+    try:
+        import shutil
+        executable = shutil.which(tool) or tool
+        result = subprocess.run([executable, *ctx.args], env=env)
+        returncode = result.returncode
+    except FileNotFoundError:
+        console.print(f"[red]Command not found: {tool}[/red]")
+    except KeyboardInterrupt:
+        returncode = 130
+    finally:
+        server.stop()
+        lockfile.remove()
+        if wired_by_us and wirer is not None:
+            unwire_result = wirer.unwire()
+            if unwire_result.success:
+                console.print(f"[dim]unwired: {wirer.name}[/dim]")
+            else:
+                console.print(f"[yellow]Failed to unwire {tool_key}: {unwire_result.message}[/yellow]")
+
+    raise typer.Exit(returncode)
 
 
 @app.command(name="scaffold-pk-agents")

@@ -1,6 +1,69 @@
 # Context Surgeon
 
-Temporarily restrict AI coding agents to a declared subset of files. Define what an agent can read, write, and see — enforce it in real time.
+**One scope, two outputs.** Pick the files that matter for your task — with a tier for each — and point that selection wherever you need it:
+
+1. **Enforce it** — run an AI coding agent (Claude Code, Codex, Gemini CLI, …) that can *only* see your selection. Everything else is blocked at the tool layer, live.
+2. **Render it** — compose the same selection into a paste-ready context blob for ChatGPT, Claude, or any chat LLM. Full content for working files, extracted signatures for interfaces, nothing for the rest.
+
+The selection is the **scope** (`.consurg.yaml`): a temporary, tiered boundary around the files that matter. Demote a file to signatures-only and it *both* hides its implementation from the live agent *and* shrinks to type stubs in the pasted prompt.
+
+## Install
+
+```bash
+git clone https://github.com/kingkillery/consurg.git
+cd consurg
+pip install -e .
+
+consurg --help
+```
+
+**Requirements:** Python 3.10+. Dependencies: `typer`, `rich`, `pyyaml` (installed automatically).
+
+## Quick Start
+
+### 1. Pick your files
+
+```bash
+cd your-project
+consurg pick
+```
+
+Opens a browser UI listing every file in the repo. Set each file's tier:
+
+| Toggle | Tier | Live agent gets | Pasted prompt gets |
+|--------|------|-----------------|--------------------|
+| **RW** | T4 | read + write | full content |
+| **RO** | T3 | read only | full content |
+| **SIG** | T2 | signatures only | extracted function/class signatures |
+| **OFF** | T0 | nothing | nothing |
+
+Token counts update live per file and in total.
+
+### 2a. …then paste it into ChatGPT
+
+In the UI: add optional task instructions, choose markdown/xml/plain, hit **Copy prompt**. Or from the CLI once a scope is saved:
+
+```bash
+consurg copy                        # print the rendered context
+consurg copy --clip                 # straight to clipboard
+consurg copy -f xml -t "fix login"  # xml format, task prepended
+```
+
+### 2b. …or run an agent inside it
+
+Hit **Save scope** in the UI (writes `.consurg.yaml`), then:
+
+```bash
+consurg run claude "fix the auth bug"
+```
+
+One command: wires Claude Code's hooks, starts a headless guard, launches the tool, unwires and cleans up when it exits. The agent physically cannot read or edit anything outside your selection — a blocked file returns a structured denial, not silence.
+
+Works with `claude`, `codex`, `gemini`, `droid`, `pk-agent`, or any command (guard-only if there's no wirer for it).
+
+### Watching it live (optional)
+
+Prefer to approve boundary crossings interactively? Run the guard TUI in a second terminal instead:
 
 ```
 Terminal 1: consurg guard -i          Terminal 2: claude "fix auth bug"
@@ -20,77 +83,13 @@ Terminal 1: consurg guard -i          Terminal 2: claude "fix auth bug"
 +--------------------------------+
 ```
 
-## Install
-
-```bash
-# Clone and install
-git clone https://github.com/kingkillery/consurg.git
-cd consurg
-pip install -e .
-
-# Verify
-consurg --help
-```
-
-**Requirements:** Python 3.10+. No external dependencies beyond `typer`, `rich`, and `pyyaml` (installed automatically).
-
-## Quick Start
-
-### 1. Create a scope
-
-```bash
-cd your-project
-consurg init my-feature
-```
-
-This creates `.consurg.yaml` in your project root.
-
-### 2. Define access tiers
-
-```bash
-# Files the agent can read AND write (Tier 4)
-consurg add "src/auth/*.py" "tests/test_auth.py"
-
-# Files the agent can read but not write (Tier 3)
-consurg add --read "src/core/*.py" "docs/*.md"
-
-# Files the agent can see signatures only (Tier 2)
-consurg add --sig "types/*.pyi"
-```
-
-### 3. Wire to your AI tool
-
-```bash
-# Claude Code
-consurg wire claude
-
-# Or: pk-agent, droid, gemini, codex
-consurg wire gemini
-```
-
-### 4. Start the interactive guard
-
-```bash
-consurg guard -i
-```
-
-The TUI shows every file access in real time. When the agent tries to access a blocked file, you're prompted to approve or deny — without leaving your terminal.
-
-### 5. Or wrap a single command
-
-```bash
-consurg wrap -- claude "fix the auth bug in src/auth.py"
-```
-
-Starts a headless guard, runs the command with scope enforcement, cleans up when done.
-
 ## The Tier Model
 
 | Tier | Label | Permissions | Scope Key |
 |------|-------|-------------|-----------|
 | **T4** | READ-WRITE | Full read and write access | `working_set` |
 | **T3** | READ-ONLY | Can read, cannot write | `reference` |
-| **T2** | SIGNATURE | Can view function/class signatures | `signatures` |
+| **T2** | SIGNATURE | Function/class signatures only | `signatures` |
 | **T1** | EXISTENCE | Can reference by name only | `visible` |
 | **T0** | BLOCKED | No access (default for unlisted files) | _(implicit)_ |
 
@@ -119,7 +118,25 @@ dynamic_deps: []
 explorer: false
 ```
 
+You can edit this by hand, build it in the picker UI, or generate it:
+
+```bash
+consurg trace src/main.py --depth 1   # scope from the import graph
+consurg git-diff                      # scope from changed files
+consurg add "src/auth/*.py"           # add patterns directly (--read, --sig)
+```
+
 ## All Commands
+
+### The daily three
+
+| Command | Purpose |
+|---------|---------|
+| `consurg pick` | Browser UI: set per-file tiers, copy a prompt, save the scope |
+| `consurg copy [--clip] [-f FMT] [-t TASK]` | Render the scope as a paste-ready prompt (markdown, xml, plain) |
+| `consurg run TOOL [ARGS...]` | Wire + guard + launch a tool under the scope, clean up on exit |
+
+### Scope management
 
 | Command | Purpose |
 |---------|---------|
@@ -127,55 +144,70 @@ explorer: false
 | `consurg add FILES [--read] [--sig]` | Add patterns to a tier |
 | `consurg remove FILES` | Remove patterns from all tiers |
 | `consurg on` / `off` | Activate or deactivate scope |
-| `consurg status` | Show tier counts and patterns |
-| `consurg audit-status` | Show effective audit config and local audit storage usage |
-| `consurg clean [--keep-scope]` | Deactivate scope, unwire all tools, and remove scope file |
+| `consurg status` | Show tier counts, patterns, and wired tools |
 | `consurg map [--scoped-only] [--depth N]` | Visualize files as a tree with tier badges |
 | `consurg trace ENTRIES [--depth N] [--apply]` | Build scope from dependency graph |
 | `consurg git-diff [BASE] [--apply]` | Build scope from branch diff |
-| `consurg export --format FMT` | Export as claude, cursor, aider, or generic |
-| `consurg guard [-i] [--port N] [--no-tui]` | Start interactive scope firewall |
-| `consurg wire TOOL [--unwire]` | Auto-configure hooks for a tool |
-| `consurg wrap -- CMD [ARGS]` | Run command with embedded scope enforcement |
-| `consurg scaffold-pk-agents [--force]` | Create pk-agent scope selector + excluded-context summarizer |
-| `consurg apply-proposal [--proposal-file PATH] [--apply]` | Map scope-proposal output into `.consurg.yaml` |
 | `consurg pin` / `unpin` | Save or remove scope file |
+| `consurg clean [--keep-scope]` | Deactivate scope, unwire all tools, remove scope file |
+
+### Advanced / plumbing
+
+| Command | Purpose |
+|---------|---------|
+| `consurg guard [-i] [--port N] [--no-tui]` | Start the interactive scope firewall manually |
+| `consurg wire TOOL [--unwire]` | Manually configure hooks for a tool (`run` does this for you) |
+| `consurg wrap -- CMD [ARGS]` | Run a command under a headless guard (no wiring) |
+| `consurg export --format FMT` | Export scope *rules* as claude, cursor, aider, or generic |
+| `consurg file-context [--print]` | Legacy flat file picker (superseded by `pick`) |
+| `consurg audit-status` | Show effective audit config and local audit storage usage |
+| `consurg scaffold-pk-agents [--force]` | Create pk-agent scope selector + excluded-context summarizer |
+| `consurg apply-proposal [--apply]` | Map scope-proposal output into `.consurg.yaml` |
 
 ## Supported Tools
 
-| Tool | Wire Method | Command |
-|------|-------------|---------|
-| **Claude Code** | PreToolUse hook in `.claude/hooks.json` | `consurg wire claude` |
-| **pk-agent** | `tool:start` hook in `.pk-agent/hooks.json` | `consurg wire pk-agent` |
-| **PuzlD AI (droid)** | Trusted dirs in `~/.puzldai/trusted-dirs.json` | `consurg wire droid` |
-| **Gemini CLI** | MCP server wrapper in `~/.gemini/mcp_config.json` | `consurg wire gemini` |
-| **Codex CLI** | MCP server wrapper in `~/.codex/mcp.json` | `consurg wire codex` |
+| Tool | Wire Method |
+|------|-------------|
+| **Claude Code** | PreToolUse hook in `.claude/hooks.json` |
+| **pk-agent** | `tool:start` hook in `.pk-agent/hooks.json` |
+| **PuzlD AI (droid)** | Trusted dirs in `~/.puzldai/trusted-dirs.json` |
+| **Gemini CLI** | MCP server wrapper in `~/.gemini/mcp_config.json` |
+| **Codex CLI** | MCP server wrapper in `~/.codex/mcp.json` |
 
-Unwire with `consurg wire <tool> --unwire`.
+`consurg run <tool>` wires and unwires automatically. For a persistent setup use `consurg wire <tool>` / `consurg wire <tool> --unwire`; `consurg status` shows what's currently wired.
 
-## pk-agent Scope Automation
+## Rendered Output
 
-Create the two-agent system for scope planning and excluded-context review:
+`consurg copy` (and the picker's **Copy prompt**) produce:
 
-```bash
-consurg scaffold-pk-agents
+````markdown
+# Context: auth-refactor
+
+## Task
+fix the login timeout
+
+## Files
+```
+src/auth.py      [RW]
+src/config.py    [RO]
+src/types.py     [SIG]
 ```
 
-This generates:
-- `.agents/pk-agents/consurg-scope-selector.pk-agent`
-- `.agents/pk-agents/consurg-excluded-summarizer.pk-agent`
-- `.agents/pk-agents/README.md` (runbook)
+## FILE: src/auth.py (read-write)
+...full content...
 
-Apply proposal output into Consurg tiers:
+## SIGNATURES: src/types.py (signatures)
+class User:
+def make_user(name):
+````
 
-```bash
-consurg apply-proposal --apply
-```
+Oversized files, binary files, and `never_include` matches are listed in an `## Omitted` section rather than dropped silently. Limits are configurable in `.consurg.yaml`:
 
-Install dependency if needed:
-
-```bash
-npm i -g pk-agent
+```yaml
+file_context_ui:
+  never_include: [".env", "secrets/**"]
+  max_file_bytes: 20000
+  max_total_bytes: 200000
 ```
 
 ## Documentation
@@ -199,11 +231,8 @@ Detailed documentation is in the [`docs/`](docs/) directory:
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run tests (176 tests)
+# Run tests
 python -m pytest tests/ -v
-
-# Run a specific test file
-python -m pytest tests/test_guard.py -v
 ```
 
 ## License

@@ -23,6 +23,10 @@ You should see all available commands listed.
 
 ## Your First Scope
 
+### Interactive setup
+
+Run `consurg` by itself to open the local picker. It starts at `C:/dev` when available and provides a searchable filesystem tree with keyboard navigation. Choose **RW**, **RO**, **SIG**, or **LIST** for each file or folder, then save the scope. Use `consurg pick` to start in the current directory, or `consurg pick --root C:/dev` to set the initial folder explicitly.
+
 ### 1. Initialize
 
 Navigate to your project and create a scope:

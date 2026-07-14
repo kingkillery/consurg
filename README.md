@@ -28,6 +28,8 @@ cd your-project
 consurg pick
 ```
 
+Running `consurg` with no subcommand opens the same picker interactively, starting at `C:/dev` when that folder exists. It provides a searchable filesystem tree, keyboard navigation, and per-file **RW**, **RO**, **SIG**, and **LIST** tiers (plus **OFF** to clear a selection). Use `consurg pick` to start in the current directory, or `consurg pick --root C:/dev` to choose another starting folder.
+
 Opens a local-only browser UI with nested native lists, disclosure buttons, and checkboxes. Start in the current repo or use **Choose folder** to switch to any local folder, then set each selected file's tier. Keyboard focus stays on the control you changed when the list updates:
 
 | Toggle | Tier | Live agent gets | Pasted prompt gets |

@@ -34,11 +34,43 @@ from consurg.file_context_ui import (
 from consurg.render import FORMATS as RENDER_FORMATS
 from consurg.render import compose_from_scope
 
-app = typer.Typer(name="consurg", help="Context Surgeon - temporarily restrict AI coding agents to a declared subset of files.")
+app = typer.Typer(
+    name="consurg",
+    help="Context Surgeon - temporarily restrict AI coding agents to a declared subset of files.",
+    invoke_without_command=True,
+    context_settings={"help_option_names": ["--help", "-h"]},
+)
 console = Console()
 err_console = Console(stderr=True)
 
 SCOPE_FILE = ".consurg.yaml"
+
+def _launch_interactive_picker(root: Path, files: list[str] | None = None):
+    """Open the existing browser picker used by both explicit and bare modes."""
+    root = root.expanduser().resolve()
+    if not root.is_dir():
+        console.print(f"[red]Picker root is not a directory: {root}[/red]")
+        raise typer.Exit(1)
+    config = load_file_context_ui_config(root)
+    start_ui_server(root, config, files or [])
+
+
+@app.callback()
+def main(ctx: typer.Context):
+    """Open the interactive picker when no subcommand is supplied."""
+    if ctx.invoked_subcommand is not None:
+        return
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        console.print(
+            "[yellow]Interactive mode needs a terminal.[/yellow] "
+            "Use 'consurg pick' from a terminal or pass a subcommand."
+        )
+        raise typer.Exit(2)
+
+    default_root = Path("C:/dev")
+    if not default_root.is_dir():
+        default_root = Path.cwd()
+    _launch_interactive_picker(default_root)
 
 
 def _scope_path() -> Path:
@@ -117,6 +149,7 @@ def file_context(
 @app.command()
 def pick(
     files: list[str] | None = typer.Argument(None, help="Optional file paths to preselect as read-write."),
+    root: Path | None = typer.Option(None, "--root", "-r", help="Folder to open initially (defaults to the current directory)."),
 ):
     """Open the scope picker UI: set per-file tiers, copy a prompt, or save the scope.
 
@@ -124,8 +157,7 @@ def pick(
     `consurg run` / `consurg guard`); "Copy prompt" renders the same selection
     as a paste-ready context blob for ChatGPT/Claude.
     """
-    config = load_file_context_ui_config(Path.cwd())
-    start_ui_server(Path.cwd(), config, files or [])
+    _launch_interactive_picker(root or Path.cwd(), files or [])
 
 
 def _copy_to_clipboard(text: str) -> bool:

@@ -28,20 +28,23 @@ cd your-project
 consurg pick
 ```
 
-Opens a browser UI listing every file in the repo. Set each file's tier:
+Opens a local-only browser UI with nested native lists, disclosure buttons, and checkboxes. Start in the current repo or use **Choose folder** to switch to any local folder, then set each selected file's tier. Keyboard focus stays on the control you changed when the list updates:
 
 | Toggle | Tier | Live agent gets | Pasted prompt gets |
 |--------|------|-----------------|--------------------|
 | **RW** | T4 | read + write | full content |
 | **RO** | T3 | read only | full content |
 | **SIG** | T2 | signatures only | extracted function/class signatures |
+| **LIST** | T1 | path/name only | listed in the file tree, no content |
 | **OFF** | T0 | nothing | nothing |
 
 Token counts update live per file and in total.
 
+If saving a scope would expand wildcard entries into explicit paths, the picker explains the change and requires confirmation before saving.
+
 ### 2a. …then paste it into ChatGPT
 
-In the UI: add optional task instructions, choose markdown/xml/plain, hit **Copy prompt**. Or from the CLI once a scope is saved:
+In the UI: add optional task instructions, choose markdown/xml/plain, then hit **Copy + open ChatGPT**. The generated context is copied to your clipboard for you to paste into ChatGPT; files are never uploaded by Consurg. Or from the CLI once a scope is saved:
 
 ```bash
 consurg copy                        # print the rendered context
@@ -132,7 +135,7 @@ consurg add "src/auth/*.py"           # add patterns directly (--read, --sig)
 
 | Command | Purpose |
 |---------|---------|
-| `consurg pick` | Browser UI: set per-file tiers, copy a prompt, save the scope |
+| `consurg pick` | Local browser UI: choose a folder, check files in a tree, copy context to ChatGPT, save the scope |
 | `consurg copy [--clip] [-f FMT] [-t TASK]` | Render the scope as a paste-ready prompt (markdown, xml, plain) |
 | `consurg run TOOL [ARGS...]` | Wire + guard + launch a tool under the scope, clean up on exit |
 
@@ -178,7 +181,7 @@ consurg add "src/auth/*.py"           # add patterns directly (--read, --sig)
 
 ## Rendered Output
 
-`consurg copy` (and the picker's **Copy prompt**) produce:
+`consurg copy` (and the picker's **Copy + open ChatGPT**) produce:
 
 ````markdown
 # Context: auth-refactor

@@ -420,9 +420,11 @@ def _make_request_handler(
 
         def do_POST(self):  # noqa: N802
             if not self._same_origin_request():
+                self._drain_request_body()
                 self.send_error(403, "Cross-origin requests are not allowed")
                 return
             if not self._authorized_request():
+                self._drain_request_body()
                 self.send_error(403, "Invalid picker token")
                 return
             parsed = urlparse(self.path)
@@ -438,6 +440,24 @@ def _make_request_handler(
         def _authorized_request(self) -> bool:
             supplied = self.headers.get("X-Consurg-Token", "")
             return secrets.compare_digest(supplied, server_token)
+
+        def _drain_request_body(self) -> None:
+            """Consume the declared request body before rejecting.
+
+            Responding and closing while the client is still sending can abort
+            the connection on Windows (WinError 10053) before the client reads
+            the status line. Bounded to avoid slow-upload abuse.
+            """
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+            except ValueError:
+                return
+            remaining = min(max(length, 0), 1_000_000)
+            while remaining > 0:
+                chunk = self.rfile.read(min(remaining, 65536))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
 
         def _same_origin_request(self) -> bool:
             origin = self.headers.get("Origin")

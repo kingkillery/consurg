@@ -226,6 +226,84 @@ def copy_cmd(
             err_console.print(f"[yellow]omitted: {path} ({why})[/yellow]")
 
 
+@app.command(name="snap")
+def snap_cmd(
+    files: list[str] = typer.Argument(..., help="File patterns to include as full content (read-write tier)."),
+    read: list[str] = typer.Option([], "--read", help="File patterns to include as full content (read-only tier). Repeatable."),
+    sig: list[str] = typer.Option([], "--sig", help="File patterns to include as signatures only. Repeatable."),
+    fmt: str = typer.Option("markdown", "--format", "-f", help=f"Output format: {', '.join(RENDER_FORMATS)}"),
+    task: str = typer.Option("", "--task", "-t", help="Optional task/instructions to prepend."),
+    name: str = typer.Option("snapshot", "--name", "-n", help="Context name shown in the header."),
+    clip: bool = typer.Option(False, "--clip", "-c", help="Copy to clipboard instead of printing."),
+    out: Path | None = typer.Option(None, "--out", "-o", help="Write the rendered context to a file."),
+):
+    """Render an ad-hoc file selection into a paste-ready prompt.
+
+    One-shot alternative to `copy`: does not read or modify .consurg.yaml.
+    Positional FILES render as full content; use --read and --sig to add
+    lower-tier patterns. Respects file_context_ui limits and never_include.
+    """
+    if fmt not in RENDER_FORMATS:
+        console.print(f"[red]Unknown format '{fmt}'. Choose from: {', '.join(RENDER_FORMATS)}[/red]")
+        raise typer.Exit(1)
+
+    from consurg.render import compose_from_tiers
+    from consurg.scope import pattern_matches
+
+    cwd = Path.cwd()
+    config = load_file_context_ui_config(cwd)
+    candidates = list_candidate_files(cwd, config)
+
+    tiers: dict[str, int] = {}
+    unmatched: list[str] = []
+    # Lower tiers first so higher tiers win on overlap.
+    for tier, patterns in ((2, sig), (3, read), (4, files)):
+        for raw in patterns:
+            pattern = raw.replace("\\", "/")
+            matched = [c for c in candidates if pattern_matches(c, pattern)]
+            if not matched:
+                unmatched.append(pattern)
+                continue
+            for path in matched:
+                tiers[path] = tier
+
+    for pattern in unmatched:
+        err_console.print(f"[yellow]no files matched: {pattern}[/yellow]")
+    if not tiers:
+        console.print("[red]No files matched the given patterns — nothing to render.[/red]")
+        raise typer.Exit(1)
+
+    result = compose_from_tiers(tiers, cwd, limits=config, fmt=fmt, task=task, scope_name=name)
+    if not result.included:
+        console.print("[yellow]All matched files were omitted — nothing to render.[/yellow]")
+        raise typer.Exit(1)
+
+    summary = f"{len(result.included)} files, ~{result.token_estimate:,} tokens"
+    delivered = False
+    if out is not None:
+        try:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(result.text, encoding="utf-8")
+        except OSError as exc:
+            console.print(f"[red]Could not write {out}: {exc}[/red]")
+            raise typer.Exit(1)
+        console.print(f"[green]Wrote {summary} to {out}[/green]")
+        delivered = True
+    if clip:
+        if _copy_to_clipboard(result.text):
+            console.print(f"[green]Copied {summary} to clipboard.[/green]")
+            delivered = True
+        else:
+            console.print("[red]No clipboard tool available.[/red]")
+    if not delivered:
+        sys.stdout.write(result.text)
+        err_console.print(f"[dim]{summary}[/dim]")
+
+    if result.skipped:
+        for path, why in result.skipped:
+            err_console.print(f"[yellow]omitted: {path} ({why})[/yellow]")
+
+
 @app.command()
 def init(
     name: str = typer.Argument(None, help="Scope name (defaults to directory name)"),

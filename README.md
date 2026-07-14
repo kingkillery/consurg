@@ -140,6 +140,7 @@ consurg add "src/auth/*.py"           # add patterns directly (--read, --sig)
 | `consurg pick` | Local browser UI: choose a folder, check files in a tree, copy context to ChatGPT, save the scope |
 | `consurg copy [--clip] [-f FMT] [-t TASK]` | Render the scope as a paste-ready prompt (markdown, xml, plain) |
 | `consurg run TOOL [ARGS...]` | Wire + guard + launch a tool under the scope, clean up on exit |
+| `consurg snap FILES [--read P] [--sig P] [--clip] [-o FILE] [-t TASK]` | One-shot context render for an ad-hoc file selection — no scope file needed or touched |
 
 ### Scope management
 

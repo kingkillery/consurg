@@ -443,6 +443,68 @@ def test_file_context_print_mode_includes_readme(in_tmp):
     assert "# Project README" in result.output
 
 
+# --- snap command tests ---
+
+def test_snap_renders_tiers_without_scope_file(in_tmp):
+    (in_tmp / "main.py").write_text("def main():\n    pass\n", encoding="utf-8")
+    (in_tmp / "notes.md").write_text("# Notes", encoding="utf-8")
+
+    result = runner.invoke(app, ["snap", "main.py", "--read", "notes.md"])
+    assert result.exit_code == 0
+    assert "## FILE: main.py" in result.output
+    assert "## FILE: notes.md" in result.output
+    assert not (in_tmp / ".consurg.yaml").exists()
+
+
+def test_snap_writes_markdown_file(in_tmp):
+    (in_tmp / "main.py").write_text("x = 1", encoding="utf-8")
+
+    result = runner.invoke(app, ["snap", "main.py", "--out", "context.md", "-t", "review this"])
+    assert result.exit_code == 0
+    saved = (in_tmp / "context.md").read_text(encoding="utf-8")
+    assert "## Task" in saved
+    assert "review this" in saved
+    assert "## FILE: main.py" in saved
+
+
+def test_snap_does_not_modify_existing_scope(in_tmp):
+    runner.invoke(app, ["init", "keepme"])
+    runner.invoke(app, ["add", "src/*.py"])
+    before = (in_tmp / ".consurg.yaml").read_text(encoding="utf-8")
+    (in_tmp / "main.py").write_text("x = 1", encoding="utf-8")
+
+    result = runner.invoke(app, ["snap", "main.py"])
+    assert result.exit_code == 0
+    assert (in_tmp / ".consurg.yaml").read_text(encoding="utf-8") == before
+
+
+def test_snap_no_matches_fails(in_tmp):
+    result = runner.invoke(app, ["snap", "missing.py"])
+    assert result.exit_code == 1
+    assert "No files matched" in result.output
+
+
+def test_snap_respects_never_include(in_tmp):
+    (in_tmp / "safe.py").write_text("safe", encoding="utf-8")
+    (in_tmp / "creds.secret").write_text("secret", encoding="utf-8")
+    with (in_tmp / ".consurg.yaml").open("w", encoding="utf-8") as f:
+        yaml.dump({"file_context_ui": {"never_include": ["*.secret"]}}, f)
+
+    result = runner.invoke(app, ["snap", "safe.py", "creds.secret"])
+    assert result.exit_code == 0
+    assert "## FILE: safe.py" in result.output
+    assert "## FILE: creds.secret" not in result.output
+    assert "excluded by never_include policy" in result.output
+
+
+def test_snap_higher_tier_wins_on_overlap(in_tmp):
+    (in_tmp / "main.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["snap", "main.py", "--sig", "*.py"])
+    assert result.exit_code == 0
+    assert "## FILE: main.py" in result.output
+    assert "## SIGNATURES: main.py" not in result.output
+
 # --- prompt command tests ---
 
 def test_prompt_no_scope(in_tmp):

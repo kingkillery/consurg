@@ -164,6 +164,31 @@ Build scope from files changed relative to a base branch.
 consurg git-diff main --apply
 ```
 
+### `consurg snap FILES [OPTIONS]`
+
+Render an ad-hoc file selection into a paste-ready prompt in one shot. Unlike `copy`, `snap` does not require or modify `.consurg.yaml` — the selection lives only in the command invocation.
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `FILES` | Yes | Patterns rendered as full content (read-write tier) |
+
+| Option | Description |
+|--------|-------------|
+| `--read P` | Pattern rendered as full content, read-only tier (repeatable) |
+| `--sig P` | Pattern rendered as extracted signatures only (repeatable) |
+| `--format` / `-f` | `markdown` (default), `xml`, or `plain` |
+| `--task` / `-t` | Task/instructions prepended to the output |
+| `--name` / `-n` | Context name shown in the header (default `snapshot`) |
+| `--clip` / `-c` | Copy the result to the clipboard |
+| `--out` / `-o` | Write the result to a file (e.g. `context.md`) |
+
+Higher tiers win when patterns overlap. `file_context_ui` limits and `never_include` rules are respected; excluded and oversized files are listed in the `## Omitted` section.
+
+```bash
+consurg snap "src/auth/*.py" --read "src/core/config.py" --sig "src/types.py" --clip
+consurg snap "docs/*.md" -t "summarize the docs" -o context.md
+```
+
 ## Export
 
 ### `consurg export --format FORMAT`

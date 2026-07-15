@@ -4,7 +4,7 @@ import sys
 import time
 import uuid
 from collections import defaultdict, deque
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -1278,7 +1278,7 @@ def wrap(
     env = os.environ.copy()
     env["CONSURG_GUARD_PORT"] = str(port)
     env["CONSURG_ACTIVE"] = "1"
-    started_at = datetime.now(UTC)
+    started_at = datetime.now(timezone.utc)
     start_ms = int(started_at.timestamp() * 1000)
     t0 = time.perf_counter()
     tool_name = Path(ctx.args[0]).name

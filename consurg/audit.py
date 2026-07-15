@@ -4,7 +4,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -112,7 +112,7 @@ def persist_trace(
     started_at: datetime,
     tool_calls: list[dict[str, Any]],
 ) -> Path:
-    timestamp_dir = started_at.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
+    timestamp_dir = started_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_dir = config.storage_path / timestamp_dir
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -121,7 +121,7 @@ def persist_trace(
     payload = {
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id,
-        "started_at": started_at.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "started_at": started_at.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "tool_calls": redacted_calls,
         "retention_policy_snapshot": {
             "max_runs": config.max_runs,
@@ -137,7 +137,7 @@ def persist_trace(
 
 
 def prune_runs(config: AuditConfig, now: datetime | None = None):
-    now = now or datetime.now(UTC)
+    now = now or datetime.now(timezone.utc)
     config.storage_path.mkdir(parents=True, exist_ok=True)
 
     runs = []
@@ -197,7 +197,7 @@ def _to_int(value: Any, default: int) -> int:
 
 def _parse_run_ts(name: str) -> datetime | None:
     try:
-        return datetime.strptime(name, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+        return datetime.strptime(name, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
     except ValueError:
         return None
 
